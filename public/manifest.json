@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Vaultmind",
+  "version": "0.1.0",
+  "description": "A lightweight, privacy-focused data analysis assistant.",
+  "permissions": [
+    "storage",
+    "unlimitedStorage"
+  ],
+  "action": {
+    "default_popup": "index.html"
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-16.png",
+    "128": "icons/icon-16.png"
+  }
+}
