@@ -1,13 +1,14 @@
 import React from 'react';
-import { Input, Button, Form, Card } from 'antd';
+import { Input, Button, Form, Tag, Space } from 'antd';
 import { SendOutlined } from '@ant-design/icons';
 
 interface ChatPanelProps {
   onSendMessage: (message: string) => void;
   isAnalyzing: boolean;
+  suggestions?: string[];
 }
 
-const ChatPanel: React.FC<ChatPanelProps> = ({ onSendMessage, isAnalyzing }) => {
+const ChatPanel: React.FC<ChatPanelProps> = ({ onSendMessage, isAnalyzing, suggestions }) => {
   const [form] = Form.useForm();
 
   const handleFinish = (values: { message: string }) => {
@@ -17,35 +18,52 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ onSendMessage, isAnalyzing }) => 
     }
   };
 
+  const handleSuggestionClick = (suggestion: string) => {
+    form.setFieldsValue({ message: suggestion });
+  };
+
   return (
-    <Card title="对话分析" bordered={false}>
-      <div style={{ minHeight: 300, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
-        {/* Chat history will go here */}
-        <div style={{ flexGrow: 1, marginBottom: 16 }}>
-          <p style={{ color: '#888' }}>例如: "哪个城市的销售额最高？" 或 "按月统计订单数量的变化趋势。"</p>
-        </div>
-        <Form form={form} onFinish={handleFinish}>
-          <Form.Item name="message" style={{ marginBottom: 0 }}>
-            <Input.Group compact>
-              <Input
-                style={{ width: 'calc(100% - 78px)' }}
-                placeholder="请输入您的问题..."
-                disabled={isAnalyzing}
-                autoComplete="off"
-              />
-              <Button
-                type="primary"
-                htmlType="submit"
-                icon={<SendOutlined />}
-                loading={isAnalyzing}
-              >
-                发送
-              </Button>
-            </Input.Group>
-          </Form.Item>
-        </Form>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* Chat history will go here in the future */}
+      <div style={{ flexGrow: 1, overflow: 'auto', paddingBottom: 16 }}>
+        {suggestions && suggestions.length > 0 && (
+          <div>
+            <p style={{ color: '#888', marginBottom: 8 }}>您可以试试这样问：</p>
+            <div>
+              {suggestions.map((s, i) => (
+                <Tag 
+                  key={i} 
+                  onClick={() => handleSuggestionClick(s)}
+                  style={{ cursor: 'pointer', marginBottom: 8 }}
+                >
+                  {s}
+                </Tag>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
-    </Card>
+      <Form form={form} onFinish={handleFinish}>
+        <Form.Item name="message" style={{ marginBottom: 0 }}>
+          {/* CORRECTED: Replaced Input.Group with Space.Compact */}
+          <Space.Compact style={{ width: '100%' }}>
+            <Input
+              placeholder="例如: 哪个产品的销售额最高？"
+              disabled={isAnalyzing}
+              autoComplete="off"
+            />
+            <Button
+              type="primary"
+              htmlType="submit"
+              icon={<SendOutlined />}
+              loading={isAnalyzing}
+            >
+              发送
+            </Button>
+          </Space.Compact>
+        </Form.Item>
+      </Form>
+    </div>
   );
 };
 
