@@ -9,7 +9,7 @@
     /* Bundler mode */
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
-    "resolveJsonModule": true, /* CORRECTED: Allow importing .json files */
+    "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
@@ -20,6 +20,6 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "vite.config.ts", "manifest.json", "sandbox.html"],
+  "include": ["src", "manifest.json", "sandbox.html"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

@@ -8,7 +8,7 @@ import {
 import type { MenuProps } from 'antd';
 import { Layout, Menu, Typography } from 'antd';
 
-const { Content, Sider } = Layout; // Removed 'Header'
+const { Content, Sider } = Layout;
 const { Title } = Typography;
 
 type MenuItem = Required<MenuProps>['items'][number];
@@ -19,12 +19,7 @@ function getItem(
   icon?: React.ReactNode,
   children?: MenuItem[],
 ): MenuItem {
-  return {
-    key,
-    icon,
-    children,
-    label,
-  } as MenuItem;
+  return { key, icon, children, label } as MenuItem;
 }
 
 const items: MenuItem[] = [

@@ -1,23 +1,22 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Breadcrumb, Layout, theme, Typography, Divider, Spin, Upload, App } from 'antd';
 import AppLayout from '../../components/layout/AppLayout';
 import { InboxOutlined } from '@ant-design/icons';
 import Dragger, { DraggerProps } from 'antd/es/upload/Dragger';
 import ChatPanel from './components/ChatPanel';
 import ResultsDisplay from './components/ResultsDisplay';
-import { FileParsingService } from '../../services/FileParsingService';
-import { DuckDBService } from '../../services/DuckDBService';
+// import { FileParsingService } from '../../services/FileParsingService'; // 移除旧服务
 import { PromptManager } from '../../services/llm/PromptManager';
 import { AgentExecutor } from '../../services/llm/AgentExecutor';
 import { LLMConfig } from '../../services/llm/LLMClient';
+import Sandbox from '../../components/layout/Sandbox';
+import { useDuckDB } from '../../hooks/useDuckDB';
+import { useFileParsing } from '../../hooks/useFileParsing'; // 引入新 Hook
 
 const { Content } = Layout;
 const { Title, Paragraph } = Typography;
 
-// Get service instances OUTSIDE the component render cycle.
-// This ensures they are created only once for the entire application lifecycle.
-const duckDBService = DuckDBService.getInstance();
-const parsingService = FileParsingService.getInstance();
+// const parsingService = FileParsingService.getInstance(); // 移除旧实例
 const promptManager = new PromptManager();
 
 type WorkbenchState = 'waitingForFile' | 'parsing' | 'fileLoaded' | 'analyzing' | 'resultsReady';
@@ -25,6 +24,10 @@ type WorkbenchState = 'waitingForFile' | 'parsing' | 'fileLoaded' | 'analyzing' 
 const WorkbenchContent: React.FC = () => {
   const { token: { colorBgContainer, borderRadiusLG } } = theme.useToken();
   const { message } = App.useApp();
+
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const { initializeDuckDB, loadData } = useDuckDB(iframeRef);
+  const { parseFileToArrow } = useFileParsing(iframeRef); // 使用新 Hook
 
   const [state, setState] = useState<WorkbenchState>('waitingForFile');
   const [fileName, setFileName] = useState<string | null>(null);
@@ -41,15 +44,12 @@ const WorkbenchContent: React.FC = () => {
   
   const agentExecutor = useMemo(() => new AgentExecutor(llmConfig), [llmConfig]);
 
-  // CORRECTED AND FINAL: The useEffect hook now only initializes services that are
-  // safe to run at startup and do not touch the DOM directly.
-  // FileParsingService now manages its own DOM-related initialization.
   useEffect(() => {
-    duckDBService.initialize().catch(err => {
+    initializeDuckDB().catch(err => {
       console.error("DuckDB initialization failed:", err);
       message.error("Failed to initialize data engine.");
     });
-  }, []); // The dependency array is now correctly empty.
+  }, [initializeDuckDB]);
 
   const handleFileUpload: DraggerProps['beforeUpload'] = async (file) => {
     const allowedTypes = ['.csv', '.xls', '.xlsx'];
@@ -68,9 +68,9 @@ const WorkbenchContent: React.FC = () => {
     setFileName(file.name);
 
     try {
-      // The singleton instance of parsingService will handle its own initialization.
-      const arrowBuffer = await parsingService.parseFileToArrow(file);
-      await duckDBService.loadData('main_table', arrowBuffer);
+      // 关键修改：使用新的 parseFileToArrow 函数
+      const arrowBuffer = await parseFileToArrow(file);
+      await loadData('main_table', arrowBuffer);
       
       const loadedSuggestions = await promptManager.getSuggestions(userRole);
       setSuggestions(loadedSuggestions);
@@ -99,7 +99,6 @@ const WorkbenchContent: React.FC = () => {
     }
   };
 
-  // ... (render logic remains the same)
   const renderInitialView = () => (
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
       <Dragger {...{ name: "file", multiple: false, beforeUpload: handleFileUpload, showUploadList: false, accept: ".csv,.xls,.xlsx" }} style={{ padding: '48px', maxWidth: 500 }}>
@@ -110,11 +109,15 @@ const WorkbenchContent: React.FC = () => {
     </div>
   );
 
+  // --- 问题二：修复 UI 布局问题 ---
   const renderAnalysisView = () => (
     <Layout style={{ background: 'transparent', height: 'calc(100vh - 200px)' }}>
-      <Content style={{ overflow: 'auto', padding: '0 12px' }}>
-        <Spin spinning={state === 'parsing' || state === 'analyzing'} tip={state === 'parsing' ? '正在解析文件...' : 'AI 正在分析中...'} size="large">
-          <ResultsDisplay state={state} fileName={fileName} data={analysisResult} thinkingSteps={thinkingSteps} />
+      {/* 将 Spin 组件移到内部，并使其包裹一个有确定大小的容器 */}
+      <Content style={{ overflow: 'auto', padding: '0 12px', display: 'flex', flexDirection: 'column' }}>
+        <Spin spinning={state === 'parsing' || state === 'analyzing'} tip={state === 'parsing' ? '正在解析文件...' : 'AI 正在分析中...'} size="large" style={{ maxHeight: '100%' }}>
+          <div style={{ flexGrow: 1, overflow: 'auto' }}>
+            <ResultsDisplay state={state} fileName={fileName} data={analysisResult} thinkingSteps={thinkingSteps} />
+          </div>
         </Spin>
       </Content>
       <Layout.Sider width="100%" style={{ background: 'transparent', padding: '12px' }}>
@@ -125,6 +128,7 @@ const WorkbenchContent: React.FC = () => {
 
   return (
     <AppLayout>
+      <Sandbox ref={iframeRef} />
       <Breadcrumb items={[{ title: 'Vaultmind' }, { title: 'Workbench' }]} style={{ margin: '16px 0' }} />
       <div style={{ padding: 24, minHeight: 'calc(100vh - 112px)', background: colorBgContainer, borderRadius: borderRadiusLG, display: 'flex', flexDirection: 'column' }}>
         <Title level={2}>智能数据工作台</Title>

@@ -1,14 +1,6 @@
 import * as duckdb from '@duckdb/duckdb-wasm';
 
-import duckdb_wasm from '@duckdb/duckdb-wasm/dist/duckdb-mvp.wasm?url';
-import duckdb_worker_mvp from '@duckdb/duckdb-wasm/dist/duckdb-browser-mvp.worker.js?url';
-import duckdb_wasm_eh from '@duckdb/duckdb-wasm/dist/duckdb-eh.wasm?url';
-import duckdb_worker_eh from '@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js?url';
-
-const DUCKDB_BUNDLES: duckdb.DuckDBBundles = {
-  mvp: { mainModule: duckdb_wasm, mainWorker: duckdb_worker_mvp },
-  eh: { mainModule: duckdb_wasm_eh, mainWorker: duckdb_worker_eh },
-};
+// 移除所有 Vite ?url 导入和 chrome.runtime.getURL 调用
 
 export class DuckDBService {
   private static instance: DuckDBService;
@@ -24,19 +16,16 @@ export class DuckDBService {
     return DuckDBService.instance;
   }
 
-  public async initialize(): Promise<void> {
+  // 关键修改：initialize 方法现在接收一个包含完整 URL 的 bundle
+  public async initialize(bundle: duckdb.DuckDBBundle): Promise<void> {
     if (this.db) return;
-    const bundle = await duckdb.selectBundle(DUCKDB_BUNDLES);
+    
     const worker = new Worker(bundle.mainWorker!);
     this.db = new duckdb.AsyncDuckDB(this.logger, worker);
     await this.db.instantiate(bundle.mainModule, bundle.pthreadWorker);
-    console.log('DuckDB initialized correctly.');
+    console.log('DuckDB initialized correctly in sandbox.');
   }
 
-  /**
-   * Registers a file buffer (in Apache Arrow format) as a virtual table in DuckDB.
-   * This is now the single method for loading data.
-   */
   public async loadData(tableName: string, buffer: Uint8Array): Promise<void> {
     if (!this.db) throw new Error('DuckDB not initialized.');
     await this.db.registerFileBuffer(`${tableName}.arrow`, buffer);

@@ -1,29 +1,23 @@
 import ExcelJS from 'exceljs';
 import Papa from 'papaparse';
 import * as arrow from 'apache-arrow';
+import { DuckDBService } from './services/DuckDBService';
 
 type ParsedData = Record<string, string | number | boolean | null>[];
 
-/**
- * This script runs in the sandboxed environment and handles all "unsafe" operations.
- * It imports all necessary parsing and conversion libraries here.
- */
+const duckDBService = DuckDBService.getInstance();
+
 window.addEventListener('message', async (event) => {
-  // IMPORTANT: In a sandbox, the origin is null, so we check event.source.
-  // We can't check against window.parent because of cross-origin restrictions.
-  // A robust solution would involve a secret handshake token, but for now, this is a basic check.
   if (!event.source) return;
 
-  const { type, buffer, fileName, id } = event.data;
+  // 扩展 event.data 类型以包含 DuckDB 操作所需的参数
+  const { type, buffer, fileName, id, tableName, sql, bundle } = event.data; // 新增 bundle
 
-  // --- Handshake Handler ---
   if (type === 'PING') {
-    // The parent window is the source of the PING message.
     (event.source as Window).postMessage({ type: 'PONG' }, '*');
     return;
   }
 
-  // --- Data Processing Handler ---
   if (type === 'PARSE_BUFFER_TO_ARROW') {
     try {
       const fileExtension = fileName.split('.').pop()?.toLowerCase();
@@ -51,9 +45,54 @@ window.addEventListener('message', async (event) => {
       (event.source as Window).postMessage({ type: 'PARSE_ERROR', id, error: error.message }, '*');
     }
   }
+
+  // --- DuckDB 相关的消息处理 ---
+  if (type === 'DUCKDB_INIT') {
+    try {
+      if (!bundle) throw new Error('Missing bundle for DUCKDB_INIT');
+      // 关键修改：使用主页面传递过来的 bundle 进行初始化
+      await duckDBService.initialize(bundle);
+      (event.source as Window).postMessage({ type: 'DUCKDB_INIT_SUCCESS', id }, '*');
+    } catch (error: any) {
+      console.error("DuckDB initialization failed in sandbox:", error);
+      (event.source as Window).postMessage({ type: 'DUCKDB_INIT_ERROR', id, error: error.message }, '*');
+    }
+  }
+
+  if (type === 'DUCKDB_LOAD_DATA') {
+    try {
+      if (!tableName || !buffer) throw new Error('Missing tableName or buffer for DUCKDB_LOAD_DATA');
+      await duckDBService.loadData(tableName, new Uint8Array(buffer));
+      (event.source as Window).postMessage({ type: 'DUCKDB_LOAD_DATA_SUCCESS', id }, '*');
+    } catch (error: any) {
+      console.error("DuckDB load data failed in sandbox:", error);
+      (event.source as Window).postMessage({ type: 'DUCKDB_LOAD_DATA_ERROR', id, error: error.message }, '*');
+    }
+  }
+
+  if (type === 'DUCKDB_EXECUTE_QUERY') {
+    try {
+      if (!sql) throw new Error('Missing SQL query for DUCKDB_EXECUTE_QUERY');
+      const result = await duckDBService.executeQuery(sql);
+      (event.source as Window).postMessage({ type: 'DUCKDB_EXECUTE_QUERY_SUCCESS', id, result }, '*');
+    } catch (error: any) {
+      console.error("DuckDB execute query failed in sandbox:", error);
+      (event.source as Window).postMessage({ type: 'DUCKDB_EXECUTE_QUERY_ERROR', id, error: error.message }, '*');
+    }
+  }
+
+  if (type === 'DUCKDB_GET_SCHEMA') {
+    try {
+      if (!tableName) throw new Error('Missing tableName for DUCKDB_GET_SCHEMA');
+      const schema = await duckDBService.getTableSchema(tableName);
+      (event.source as Window).postMessage({ type: 'DUCKDB_GET_SCHEMA_SUCCESS', id, schema }, '*');
+    } catch (error: any) {
+      console.error("DuckDB get schema failed in sandbox:", error);
+      (event.source as Window).postMessage({ type: 'DUCKDB_GET_SCHEMA_ERROR', id, error: error.message }, '*');
+    }
+  }
 });
 
-// --- Parsing Functions (remain unchanged) ---
 function parseCsv(csvString: string): Promise<ParsedData> {
   return new Promise((resolve, reject) => {
     Papa.parse(csvString, {
