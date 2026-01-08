@@ -14,8 +14,8 @@ export class DuckDBService {
     return DuckDBService.instance;
   }
 
-  // Modified: Accepts the worker instance (which will be 'self' when called from duckdb.worker.ts)
-  public async initialize(bundle: duckdb.DuckDBBundle, workerInstance: Worker): Promise<void> { // 类型明确为 Worker
+  // Modified: Accepts the worker instance (which will be the pre-created CoreWorker)
+  public async initialize(bundle: duckdb.DuckDBBundle, workerInstance: Worker): Promise<void> {
     if (this.db) {
       console.log('[DuckDBService] DB already initialized, skipping.');
       return;
@@ -23,17 +23,38 @@ export class DuckDBService {
 
     console.log('[DuckDBService] Initializing DuckDB...');
     
-    // Instantiate AsyncDuckDB with the provided worker instance
+    // The workerInstance is now the CoreWorker, which is correct for AsyncDuckDB
     this.db = new duckdb.AsyncDuckDB(this.logger, workerInstance);
-    console.log('[DuckDBService] AsyncDuckDB instance created with workerInstance.');
+    console.log('[DuckDBService] AsyncDuckDB instance created with CoreWorker instance.');
 
-    console.log('[DuckDBService] Attempting to instantiate DuckDB with bundle:', bundle);
-    // The bundle.mainModule and bundle.pthreadWorker URLs should be absolute at this point
+    // Add a check for SharedArrayBuffer before instantiation
+    if (typeof SharedArrayBuffer === 'undefined') {
+      const errorMessage = 'SharedArrayBuffer is not available. Cross-origin isolation (COOP/COEP headers) is likely not configured correctly for the environment.';
+      console.error(`[DuckDBService] ${errorMessage}`);
+      throw new Error(errorMessage);
+    } else {
+      console.log('[DuckDBService] SharedArrayBuffer is available. Proceeding with instantiation.');
+    }
+
+    // Pre-flight check is no longer needed
+    
+    console.log('[DuckDBService] Attempting to instantiate DuckDB with bundle...');
     try {
-      await this.db.instantiate(bundle.mainModule, bundle.pthreadWorker); 
-      console.log('[DuckDBService] DuckDB instantiated successfully.');
+      console.log('[DuckDBService] Calling this.db.instantiate with mainModule and pthreadWorker URL...');
+      
+      // Pass the pthreadWorker URL as a string, as required by the API
+      const instantiationPromise = this.db.instantiate(bundle.mainModule, (bundle as any).pthreadWorker);
+      
+      const timeoutPromise = new Promise<void>((_, reject) =>
+        setTimeout(() => reject(new Error('DuckDB instantiation timed out after 120 seconds.')), 120000)
+      );
+      
+      await Promise.race([instantiationPromise, timeoutPromise]);
+
+      console.log('[DuckDBService] this.db.instantiate completed successfully.');
     } catch (e) {
       console.error('[DuckDBService] Error during DuckDB instantiation:', e);
+      console.error('[DuckDBService] Full error details:', e instanceof Error ? e.stack : e);
       throw e;
     }
     
@@ -42,6 +63,7 @@ export class DuckDBService {
     const c = await this.db.connect();
     try {
       console.log('[DuckDBService] Executing LOAD arrow;');
+      await c.query('INSTALL arrow from community;');
       await c.query('LOAD arrow;'); // Keep LOAD
       console.log('[DuckDBService] LOAD arrow; executed successfully.');
     } catch (e) {

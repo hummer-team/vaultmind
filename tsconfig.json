@@ -20,6 +20,8 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "manifest.json", "sandbox.html"],
+  "include": ["src", "manifest.json",
+    "sandbox.html"
+  ],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

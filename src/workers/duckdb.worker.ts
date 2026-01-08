@@ -1,3 +1,5 @@
+console.log('[DB Worker] Script execution started.'); // <-- Added this log
+
 import { DuckDBService } from '../services/DuckDBService';
 import * as duckdb from '@duckdb/duckdb-wasm';
 
@@ -18,7 +20,7 @@ self.onmessage = async (event: MessageEvent) => {
         if (!resources) throw new Error('Missing resources for DUCKDB_INIT');
 
         // Resources should now contain absolute URLs from sandbox.ts
-        const DUCKDB_BUNDLES: duckdb.DuckDBBundles = {
+        const DUCKDB_BUNDLES: any = {
           mvp: {
             mainModule: resources['duckdb-mvp.wasm'],
             mainWorker: resources['duckdb-browser-mvp.worker.js'],
@@ -32,10 +34,26 @@ self.onmessage = async (event: MessageEvent) => {
         const bundle = await duckdb.selectBundle(DUCKDB_BUNDLES);
         (bundle as any).pthreadWorker = resources['duckdb-browser-coi.pthread.worker.js'];
 
-        console.log('[DB Worker] Initializing with resolved bundle:', bundle);
-        // Pass 'self' (the WorkerGlobalScope) as the workerInstance, with type assertion
-        await duckDBService.initialize(bundle, self as any as Worker); // 更改为 self as any as Worker
-        result = true;
+        // --- CRITICAL CHANGE: Manually create the Core DuckDB Worker ---
+        let coreWorker: Worker | null = null;
+        try {
+            console.log('[DB Worker] Manually creating Core DuckDB worker from URL:', bundle.mainWorker);
+            coreWorker = new Worker(bundle.mainWorker as string, { type: 'module' });
+            console.log('[DB Worker] Manually created Core DuckDB worker instance:', coreWorker);
+
+            console.log('[DB Worker] Calling duckDBService.initialize with Core Worker...');
+            // Pass the NEWLY CREATED coreWorker, not `self`
+            await duckDBService.initialize(bundle, coreWorker);
+            console.log('[DB Worker] duckDBService.initialize completed successfully.');
+            result = true;
+        } catch (initError) {
+            console.error('[DB Worker] Error during duckDBService.initialize:', initError);
+            console.error('[DB Worker] Full error details:', initError instanceof Error ? initError.stack : initError);
+            throw initError;
+        } finally {
+            // Do not terminate the coreWorker here, it's needed by the service.
+            // It will be terminated when the service is disposed.
+        }
         break;
       }
       
@@ -106,4 +124,5 @@ self.onmessage = async (event: MessageEvent) => {
   }
 };
 
+console.log('[DB Worker] self.onmessage handler assigned.'); // <-- Added this log
 console.log('[DB Worker] Worker script started and listening for messages.');
