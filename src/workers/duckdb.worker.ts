@@ -8,7 +8,7 @@ const duckDBService = DuckDBService.getInstance();
 // resolveURL is no longer needed here as bundle URLs should now be absolute.
 
 self.onmessage = async (event: MessageEvent) => {
-  const { type, id, resources, sql, tableName, buffer, fileName } = event.data;
+  const { type, id, resources, sql, tableName, buffer } = event.data;
 
   try {
     let result: any;
@@ -57,51 +57,7 @@ self.onmessage = async (event: MessageEvent) => {
         break;
       }
       
-      case 'PARSE_BUFFER_TO_ARROW': {
-        const { default: Papa } = await import('papaparse');
-        const { default: ExcelJS } = await import('exceljs');
-        const arrow = await import('apache-arrow');
-        
-        const fileExtension = fileName.split('.').pop()?.toLowerCase();
-        let jsonData;
-
-        if (fileExtension === 'csv') {
-            const csvString = new TextDecoder().decode(buffer);
-            jsonData = await new Promise((resolve, reject) => {
-              Papa.parse(csvString, {
-                header: true,
-                skipEmptyLines: true,
-                dynamicTyping: true,
-                complete: (results) => results.errors.length ? reject(results.errors[0]) : resolve(results.data),
-                error: (error: Error) => reject(error),
-              });
-            });
-        } else if (fileExtension === 'xls' || fileExtension === 'xlsx') {
-            const workbook = new ExcelJS.Workbook();
-            await workbook.xlsx.load(buffer);
-            const worksheet = workbook.worksheets[0];
-            if (!worksheet) throw new Error('Excel file contains no sheets.');
-            const rows: any[] = [];
-            worksheet.eachRow({ includeEmpty: false }, (row) => { rows.push(row.values); });
-            if (rows.length === 0) { jsonData = []; }
-            else {
-                const headers = rows[0].slice(1);
-                jsonData = rows.slice(1).map(rowArray => {
-                    const row = rowArray.slice(1);
-                    const rowObject: Record<string, any> = {};
-                    headers.forEach((header: string, index: number) => { rowObject[header] = row[index] ?? null; });
-                    return rowObject;
-                });
-            }
-        } else { throw new Error('Unsupported file type'); }
-
-        if (!jsonData || (jsonData as any[]).length === 0) throw new Error('File is empty or could not be parsed');
-
-        const arrowTable = arrow.tableFromJSON(jsonData as any[]);
-        result = arrow.tableToIPC(arrowTable, 'file');
-        transfer.push(result.buffer);
-        break;
-      }
+      // REMOVED 'PARSE_BUFFER_TO_ARROW' case from here
 
       case 'DUCKDB_LOAD_DATA': {
         if (!tableName || !buffer) throw new Error('Missing tableName or buffer');

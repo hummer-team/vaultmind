@@ -87,6 +87,11 @@ export default defineConfig(({command}) => {
             crx({manifest}),
             corsPlugin(),
         ],
+        resolve: { // <-- Add this resolve section
+          alias: {
+            'apache-arrow': 'node_modules/apache-arrow/Arrow.esnext.min.js',
+          },
+        },
         base: isDev ? '/' : './',
         build: {
             outDir: 'dist',
