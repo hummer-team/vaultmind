@@ -47,22 +47,38 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ state, fileName, data, 
           />
         );
       case 'resultsReady':
+        console.log('[ResultsDisplay] Rendering with state "resultsReady". Received data:', data);
+
         if (!data || data.length === 0) {
           return <Empty description="分析完成，但没有返回结果。" />;
         }
 
-        const columns = Object.keys(data[0]).map(key => ({
-          title: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-          dataIndex: key,
-          key: key,
+        // --- CRITICAL CHANGE: Sanitize data keys before rendering ---
+        const originalKeys = Object.keys(data[0]);
+        const sanitizedData = data.map((row: any) => {
+          const newRow: { [key: string]: any } = {};
+          for (const key in row) {
+            // Replace special characters with underscores to create a valid dataIndex
+            const sanitizedKey = key.replace(/[^a-zA-Z0-9_]/g, '_');
+            newRow[sanitizedKey] = row[key];
+          }
+          return newRow;
+        });
+
+        const columns = Object.keys(sanitizedData[0]).map((sanitizedKey, index) => ({
+          // Use the original key for the title for better readability
+          title: originalKeys[index],
+          dataIndex: sanitizedKey,
+          key: sanitizedKey,
         }));
+        // --- END CRITICAL CHANGE ---
 
         return (
           <div>
             {thinkingSteps && <ThinkingSteps steps={thinkingSteps} />}
             <Paragraph><strong>分析结果:</strong></Paragraph>
             <Table
-              dataSource={data.map((row: any, index: any) => ({ ...row, key: index }))}
+              dataSource={sanitizedData.map((row: any, index: any) => ({ ...row, key: index }))}
               columns={columns}
               pagination={{ pageSize: 5 }}
               size="small"
