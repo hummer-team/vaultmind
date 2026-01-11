@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Breadcrumb, Layout, theme, Typography, Divider, Spin, App } from 'antd';
+import { theme, Typography, Divider, Spin, App } from 'antd';
 import AppLayout from '../../components/layout/AppLayout';
 import { InboxOutlined } from '@ant-design/icons';
 import Dragger, { DraggerProps } from 'antd/es/upload/Dragger';
@@ -13,13 +13,6 @@ import { useDuckDB } from '../../hooks/useDuckDB';
 import { useFileParsing } from '../../hooks/useFileParsing';
 import { WorkbenchState } from '../../types/workbench.types';
 
-// --- CRITICAL CHANGE: Remove dotenv imports and usage ---
-// import dotenv from 'dotenv';
-
-// // load .env file - THIS IS NOT NEEDED AND WILL NOT WORK IN BROWSER
-// dotenv.config({ path: '.env' });
-
-const { Content } = Layout;
 const { Title, Paragraph } = Typography;
 
 const promptManager = new PromptManager();
@@ -39,7 +32,7 @@ const WorkbenchContent: React.FC = () => {
   const [thinkingSteps, setThinkingSteps] = useState<any>(null);
 
   const [llmConfig] = useState<LLMConfig>({
-    provider: import.meta.env.VITE_LLM_PROVIDER, // <-- Add this line
+    provider: import.meta.env.VITE_LLM_PROVIDER as any,
     apiKey: import.meta.env.VITE_LLM_API_KEY as string,
     baseURL: import.meta.env.VITE_LLM_API_URL as string,
     modelName: import.meta.env.VITE_LLM_MODEL_NAME as string,
@@ -68,27 +61,25 @@ const WorkbenchContent: React.FC = () => {
   }, [isDBReady, isSandboxReady]);
 
   const handleFileUpload: DraggerProps['beforeUpload'] = async (file) => {
-    setUiState('parsing'); // Keep UI state for user feedback
+    setUiState('parsing');
     setFileName(file.name);
 
     try {
-      // --- CRITICAL CHANGE 2: Replace old logic with a single call ---
       console.log(`[Workbench] Calling loadFileInDuckDB for file: ${file.name}`);
       await loadFileInDuckDB(file, 'main_table');
       console.log(`[Workbench] loadFileInDuckDB completed for file: ${file.name}`);
 
-      // This part can now run after the file is loaded directly into DuckDB
-      const loadedSuggestions = await promptManager.getSuggestions('ecommerce');
+      const loadedSuggestions = promptManager.getSuggestions('ecommerce');
       setSuggestions(loadedSuggestions);
 
       message.success(`${file.name} loaded and ready for analysis.`);
       setUiState('fileLoaded');
     } catch (error: any) {
-      console.error(`[Workbench] Error during file upload process:`, error); // Better logging
+      console.error(`[Workbench] Error during file upload process:`, error);
       message.error(`Failed to process file: ${error.message}`);
       setUiState('waitingForFile');
     }
-    return false; // Prevent default upload behavior
+    return false;
   };
 
   const handleStartAnalysis = async (query: string) => {
@@ -100,8 +91,8 @@ const WorkbenchContent: React.FC = () => {
     setAnalysisResult(null);
     setThinkingSteps(null);
     try {
-      const { tool, params, result } = await agentExecutor.execute(query);
-      setThinkingSteps({ tool, params });
+      const { tool, params, result, thought } = await agentExecutor.execute(query);
+      setThinkingSteps({ tool, params, thought });
       setAnalysisResult(result);
       setUiState('resultsReady');
     } catch (error: any) {
@@ -120,7 +111,7 @@ const WorkbenchContent: React.FC = () => {
   const isSpinning = uiState === 'initializing' || uiState === 'parsing' || uiState === 'analyzing';
 
   const renderInitialView = () => (
-    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
       <Dragger 
         {...{ name: "file", multiple: false, beforeUpload: handleFileUpload, showUploadList: false, accept: ".csv,.xls,.xlsx" }} 
         disabled={uiState !== 'waitingForFile'}
@@ -134,23 +125,22 @@ const WorkbenchContent: React.FC = () => {
   );
 
   const renderAnalysisView = () => (
-    <Layout style={{ background: 'transparent', height: 'calc(100vh - 200px)' }}>
-      <Content style={{ overflow: 'auto', padding: '0 12px' }}>
-        <ResultsDisplay state={uiState} fileName={fileName} data={analysisResult} thinkingSteps={thinkingSteps} />
-      </Content>
-      <Layout.Sider width="100%" style={{ background: 'transparent', padding: '12px' }}>
-        <ChatPanel onSendMessage={handleStartAnalysis} isAnalyzing={uiState === 'analyzing'} suggestions={suggestions} />
-      </Layout.Sider>
-    </Layout>
+    <div style={{ height: '100%', overflow: 'auto', padding: '0 12px' }}>
+      <ResultsDisplay state={uiState} fileName={fileName} data={analysisResult} thinkingSteps={thinkingSteps} />
+    </div>
   );
 
   return (
     <AppLayout>
       <Sandbox ref={iframeRef} />
-      <Breadcrumb items={[{ title: 'Vaultmind' }, { title: 'Workbench' }]} style={{ margin: '16px 0' }} />
-      <div style={{ padding: 24, minHeight: 'calc(100vh - 112px)', background: colorBgContainer, borderRadius: borderRadiusLG, display: 'flex', flexDirection: 'column' }}>
-        <Spin spinning={isSpinning} tip={getLoadingTip()} size="large" style={{maxHeight: '100%'}}>
-          <Title level={2}>智能数据工作台</Title>
+      {/* Adjusted height to account for header and footer */}
+      <div style={{ padding: 24, height: 'calc(100vh - 128px)', background: colorBgContainer, borderRadius: borderRadiusLG, display: 'flex', flexDirection: 'column' }}>
+        <Spin spinning={isSpinning} tip={getLoadingTip()} size="large" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+          
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Title level={2} style={{ margin: 0 }}>智能数据工作台</Title>
+          </div>
+          
           <Paragraph>
             {uiState === 'initializing'
               ? '引擎初始化中...'
@@ -160,12 +150,22 @@ const WorkbenchContent: React.FC = () => {
             }
           </Paragraph>
           <Divider />
-          <div style={{ flex: 1, position: 'relative' }}>
-            {uiState === 'fileLoaded' || uiState === 'analyzing' || uiState === 'resultsReady' 
-              ? renderAnalysisView() 
-              : renderInitialView()
-            }
+
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ flex: 1, overflow: 'auto', position: 'relative' }}>
+              {uiState === 'fileLoaded' || uiState === 'analyzing' || uiState === 'resultsReady'
+                ? renderAnalysisView()
+                : renderInitialView()
+              }
+            </div>
+            
+            {(uiState === 'fileLoaded' || uiState === 'analyzing' || uiState === 'resultsReady') && (
+              <div style={{ flexShrink: 0, padding: '12px 0 0 0' }}>
+                <ChatPanel onSendMessage={handleStartAnalysis} isAnalyzing={uiState === 'analyzing'} suggestions={suggestions} />
+              </div>
+            )}
           </div>
+
         </Spin>
       </div>
     </AppLayout>

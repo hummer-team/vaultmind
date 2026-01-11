@@ -6,10 +6,10 @@ import {
   UserOutlined,
 } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
-import { Layout, Menu, Typography } from 'antd';
+import { Layout, Menu, Typography, Breadcrumb, Button, Space } from 'antd';
 
-const { Content, Sider } = Layout;
-const { Title } = Typography;
+const { Content, Sider, Footer } = Layout;
+const { Title, Text } = Typography;
 
 type MenuItem = Required<MenuProps>['items'][number];
 
@@ -49,8 +49,34 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
       </Sider>
       <Layout>
         <Content style={{ margin: '0 16px' }}>
+          {/* --- CRITICAL CHANGE: Create a header within the Content area --- */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '16px 0' }}>
+            <Breadcrumb items={[{ title: 'Vaultmind' }, { title: 'Workbench' }]} />
+            <Space>
+              <Typography.Text>hi, admin</Typography.Text>
+              <Button type="link" size="small">退出</Button>
+            </Space>
+          </div>
+          {/* --- END CRITICAL CHANGE --- */}
+          
+          {/* The rest of the page content will be rendered here */}
           {children}
         </Content>
+        <Footer style={{ padding: '12px 24px', background: 'transparent' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ flex: 1 }}></div> {/* Spacer */}
+            <div style={{ flex: 1, textAlign: 'center' }}>
+              <Text type="secondary">
+                Copyright © 2026 VaultMind. All rights reserved.
+              </Text>
+            </div>
+            <div style={{ flex: 1, textAlign: 'right' }}>
+              <Text type="secondary">
+               issue report to lee@gmail.com thanks
+              </Text>
+            </div>
+          </div>
+        </Footer>
       </Layout>
     </Layout>
   );

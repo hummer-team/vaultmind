@@ -49,37 +49,36 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ state, fileName, data, 
       case 'resultsReady':
         console.log('[ResultsDisplay] Rendering with state "resultsReady". Received data:', data);
 
-        if (!data || data.length === 0) {
+        const { columns: originalColumns, rows } = data;
+
+        if (!originalColumns || !rows || rows.length === 0) {
           return <Empty description="分析完成，但没有返回结果。" />;
         }
 
-        // --- CRITICAL CHANGE: Sanitize data keys before rendering ---
-        const originalKeys = Object.keys(data[0]);
-        const sanitizedData = data.map((row: any) => {
-          const newRow: { [key: string]: any } = {};
-          for (const key in row) {
-            // Replace special characters with underscores to create a valid dataIndex
-            const sanitizedKey = key.replace(/[^a-zA-Z0-9_]/g, '_');
-            newRow[sanitizedKey] = row[key];
-          }
-          return newRow;
-        });
-
-        const columns = Object.keys(sanitizedData[0]).map((sanitizedKey, index) => ({
-          // Use the original key for the title for better readability
-          title: originalKeys[index],
-          dataIndex: sanitizedKey,
-          key: sanitizedKey,
+        // --- CRITICAL CHANGE: Create a robust mapping for columns and data ---
+        const tableColumns = originalColumns.map((colName: string, index: number) => ({
+          title: colName, // Keep original name for display
+          dataIndex: `col_${index}`, // Use a simple, safe index-based key for data access
+          key: `col_${index}`,
         }));
+
+        const tableDataSource = rows.map((row: any[], rowIndex: number) => {
+          const rowObject: { [key: string]: any } = { key: `row-${rowIndex}` };
+          originalColumns.forEach((_colName: string, colIndex: number) => {
+            rowObject[`col_${colIndex}`] = row[colIndex]; // Map data to the safe, index-based key
+          });
+          return rowObject;
+        });
         // --- END CRITICAL CHANGE ---
+        console.log('[ResultsDisplay] Mapped data for Table:', tableDataSource," tableColumns",tableColumns);
 
         return (
           <div>
             {thinkingSteps && <ThinkingSteps steps={thinkingSteps} />}
             <Paragraph><strong>分析结果:</strong></Paragraph>
             <Table
-              dataSource={sanitizedData.map((row: any, index: any) => ({ ...row, key: index }))}
-              columns={columns}
+              dataSource={tableDataSource}
+              columns={tableColumns}
               pagination={{ pageSize: 5 }}
               size="small"
             />

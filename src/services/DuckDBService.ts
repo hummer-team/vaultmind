@@ -130,18 +130,27 @@ export class DuckDBService {
     console.log(`Data loaded into table '${tableName}' from Arrow buffer.`);
   }
 
-  public async executeQuery(sql: string): Promise<any> {
+  public async executeQuery(sql: string): Promise<{ columns: string[], rows: any[][] }> {
     if (!this.db) throw new Error('DuckDB not initialized.');
     const c = await this.db.connect();
     try {
       const result = await c.query(sql);
-      return result.toArray().map(row => row.toJSON());
+
+      // --- CRITICAL CHANGE: Convert Arrow Table to our standard format ---
+      const columns = result.schema.fields.map(field => field.name);
+      const rows = result.toArray().map(row => Object.values(row.toJSON()));
+
+      console.log('[DuckDBService] Standardized query result:', { columns, rows });
+      return { columns, rows };
+      // --- END CRITICAL CHANGE ---
+
     } finally {
       await c.close();
     }
   }
 
   public async getTableSchema(tableName: string): Promise<any> {
+    // This method now also returns the standardized format, which is fine.
     return this.executeQuery(`DESCRIBE "${tableName}";`);
   }
 }
