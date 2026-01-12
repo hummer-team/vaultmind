@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import {
-  DesktopOutlined,
+  HistoryOutlined,
   PieChartOutlined,
-  TeamOutlined,
+  DatabaseOutlined,
   UserOutlined,
+  CrownOutlined,
 } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import { Layout, Menu, Typography, Breadcrumb, Button, Space } from 'antd';
@@ -24,24 +25,23 @@ function getItem(
 
 const items: MenuItem[] = [
   getItem('Workbench', '1', <PieChartOutlined />),
-  getItem('Asset Center', '2', <DesktopOutlined />),
-  getItem('Team Space', 'sub1', <TeamOutlined />, [
-    getItem('Team', '3'),
-    getItem('Shared', '4'),
-  ]),
-  getItem('Settings', '9', <UserOutlined />),
+  getItem('SessionHistory', '2', <HistoryOutlined />),
+  getItem('TemplateList', '3', <DatabaseOutlined />),
+  getItem('Subscription', '4', <CrownOutlined />),
+  getItem('Settings', '5', <UserOutlined />),
 ];
 
 interface AppLayoutProps {
   children: React.ReactNode;
+  currentKey: string;
+  onMenuClick: MenuProps['onClick'];
 }
 
-const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
+const AppLayout: React.FC<AppLayoutProps> = ({ children, currentKey, onMenuClick }) => {
   const [collapsed, setCollapsed] = useState(false);
 
   return (
-    // --- CRITICAL CHANGE 1: Remove overflow: 'hidden' from the outermost Layout ---
-    <Layout style={{ height: '100vh' }}> {/* Removed overflow: 'hidden' */}
+    <Layout style={{ height: '100vh' }}>
       <Sider collapsible collapsed={collapsed} onCollapse={(value) => setCollapsed(value)}>
         <div 
           style={{ 
@@ -75,12 +75,17 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
             Vaultmind
            </Title>
         </div>
-        <Menu theme="dark" defaultSelectedKeys={['1']} mode="inline" items={items} />
+        <Menu 
+          theme="dark" 
+          selectedKeys={[currentKey]} 
+          mode="inline" 
+          items={items} 
+          onClick={onMenuClick} 
+        />
       </Sider>
       <Layout style={{ display: 'flex', flexDirection: 'column' }}>
         
-        {/* --- CRITICAL CHANGE 2: Add flexShrink: 0 to the header div --- */}
-        <div style={{ margin: '0 16px', flexShrink: 0 }}> {/* Added flexShrink: 0 */}
+        <div style={{ margin: '0 16px', flexShrink: 0 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '16px 0' }}>
             <Breadcrumb items={[{ title: 'Vaultmind' }, { title: 'Workbench' }]} />
             <Space>
@@ -90,7 +95,6 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
           </div>
         </div>
         
-        {/* --- CRITICAL CHANGE 3: The Content area is now the primary scroll container --- */}
         <Content style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column', margin: '0 16px' }}>
           {children}
         </Content>
