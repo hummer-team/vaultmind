@@ -125,7 +125,8 @@ const WorkbenchContent: React.FC = () => {
   );
 
   const renderAnalysisView = () => (
-    <div style={{ height: '100%', overflow: 'auto', padding: '0 12px' }}>
+    // The padding is now controlled by the parent container for alignment
+    <div style={{ height: '100%', overflow: 'auto' }}>
       <ResultsDisplay state={uiState} fileName={fileName} data={analysisResult} thinkingSteps={thinkingSteps} />
     </div>
   );
@@ -133,8 +134,8 @@ const WorkbenchContent: React.FC = () => {
   return (
     <AppLayout>
       <Sandbox ref={iframeRef} />
-      {/* Adjusted height to account for header and footer */}
-      <div style={{ padding: 24, height: 'calc(100vh - 128px)', background: colorBgContainer, borderRadius: borderRadiusLG, display: 'flex', flexDirection: 'column' }}>
+      {/* --- CRITICAL CHANGE: Remove fixed height, let Flexbox control the layout --- */}
+      <div style={{ padding: 24, background: colorBgContainer, borderRadius: borderRadiusLG, display: 'flex', flexDirection: 'column', flex: 1 }}>
         <Spin spinning={isSpinning} tip={getLoadingTip()} size="large" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
           
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -151,8 +152,9 @@ const WorkbenchContent: React.FC = () => {
           </Paragraph>
           <Divider />
 
+          {/* This inner container correctly manages scrolling and docking */}
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <div style={{ flex: 1, overflow: 'auto', position: 'relative' }}>
+            <div style={{ flex: 1, overflow: 'auto', padding: '0 12px' }}>
               {uiState === 'fileLoaded' || uiState === 'analyzing' || uiState === 'resultsReady'
                 ? renderAnalysisView()
                 : renderInitialView()
@@ -160,12 +162,11 @@ const WorkbenchContent: React.FC = () => {
             </div>
             
             {(uiState === 'fileLoaded' || uiState === 'analyzing' || uiState === 'resultsReady') && (
-              <div style={{ flexShrink: 0, padding: '12px 0 0 0' }}>
+              <div style={{ flexShrink: 0, padding: '12px 12px 0 12px' }}>
                 <ChatPanel onSendMessage={handleStartAnalysis} isAnalyzing={uiState === 'analyzing'} suggestions={suggestions} />
               </div>
             )}
           </div>
-
         </Spin>
       </div>
     </AppLayout>

@@ -79,7 +79,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         <Menu theme="dark" defaultSelectedKeys={['1']} mode="inline" items={items} />
       </Sider>
       <Layout>
-        <Content style={{ margin: '0 16px' }}>
+        <Content style={{ margin: '0 16px', display: 'flex', flexDirection: 'column' }}>
           {/* --- CRITICAL CHANGE: Create a header within the Content area --- */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '16px 0' }}>
             <Breadcrumb items={[{ title: 'Vaultmind' }, { title: 'Workbench' }]} />
@@ -93,7 +93,8 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
           {/* The rest of the page content will be rendered here */}
           {children}
         </Content>
-        <Footer style={{ padding: '12px 24px', background: 'transparent' }}>
+        {/* --- CRITICAL CHANGE: Reduce footer padding --- */}
+        <Footer style={{ padding: '8px 24px', background: 'transparent' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ flex: 1 }}></div> {/* Spacer */}
             <div style={{ flex: 1, textAlign: 'center' }}>

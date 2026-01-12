@@ -1,6 +1,6 @@
 import React from 'react';
-import { Card, Empty, Typography, Table, Tag, Space } from 'antd';
-import { BarChartOutlined, CodeOutlined, TableOutlined } from '@ant-design/icons';
+import { Card, Empty, Typography, Table, Tag, Space, Divider } from 'antd';
+import { BarChartOutlined, TableOutlined } from '@ant-design/icons';
 import { WorkbenchState } from '../../../types/workbench.types'; // 更新导入路径
 
 const { Paragraph, Text } = Typography;
@@ -13,15 +13,26 @@ interface ResultsDisplayProps {
 }
 
 const ThinkingSteps: React.FC<{ steps: { tool: string; params: any } }> = ({ steps }) => (
-  <Card size="small" title={<><CodeOutlined /> AI 思考步骤</>} style={{ marginBottom: 16 }}>
-    <Space direction="vertical">
+  // --- CRITICAL CHANGE 1: Remove Card wrapper and adjust styles ---
+  <div style={{ marginBottom: 16 }}>
+    <Paragraph><strong>AI 思考步骤:</strong></Paragraph>
+    <Space direction="vertical" style={{ width: '100%' }}>
       <Text>1. 理解用户意图后，决定调用工具: <Tag color="blue">{steps.tool}</Tag></Text>
       <Text>2. 为该工具准备了以下参数:</Text>
-      <pre style={{ background: '#222', padding: '8px 12px', borderRadius: 4, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+      {/* --- CRITICAL CHANGE: Adjust pre background color --- */}
+      <pre style={{ 
+        border: '1px solid #e8e8e8', // Keep the subtle border
+        padding: '8px 12px', 
+        borderRadius: 4, 
+        whiteSpace: 'pre-wrap', 
+        wordBreak: 'break-all' 
+        // Background color is now removed to inherit from the parent
+      }}>
         <code>{JSON.stringify(steps.params, null, 2)}</code>
       </pre>
+      {/* --- END CRITICAL CHANGE --- */}
     </Space>
-  </Card>
+  </div>
 );
 
 const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ state, fileName, data, thinkingSteps }) => {
@@ -72,9 +83,15 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ state, fileName, data, 
         // --- END CRITICAL CHANGE ---
         console.log('[ResultsDisplay] Mapped data for Table:', tableDataSource," tableColumns",tableColumns);
 
+        // --- CRITICAL CHANGE 2: Merge ThinkingSteps and Results into a single Card ---
         return (
-          <div>
-            {thinkingSteps && <ThinkingSteps steps={thinkingSteps} />}
+          <Card title={`Analysis Result for ${fileName}`}>
+            {thinkingSteps && (
+              <>
+                <ThinkingSteps steps={thinkingSteps} />
+                <Divider />
+              </>
+            )}
             <Paragraph><strong>分析结果:</strong></Paragraph>
             <Table
               dataSource={tableDataSource}
@@ -82,8 +99,9 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ state, fileName, data, 
               pagination={{ pageSize: 5 }}
               size="small"
             />
-          </div>
+          </Card>
         );
+        // --- END CRITICAL CHANGE ---
       default:
         return null;
     }
