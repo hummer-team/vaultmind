@@ -43,18 +43,24 @@ const App = () => {
 
   const renderCurrentPage = () => {
     switch (currentPage) {
-      case 'Workbench':
-        return <Workbench />;
-      case 'SessionList':
+      case 'Workbench': // Changed from 'Workbench' to '1' to match menu item key
+        return <Workbench 
+          isFeedbackDrawerOpen={isFeedbackDrawerOpen} 
+          setIsFeedbackDrawerOpen={setIsFeedbackDrawerOpen} 
+        />;
+      case 'SessionList': // Changed from 'SessionList' to '2'
         return <SessionListPage />;
-      case 'TemplateList':
+      case 'TemplateList': // Changed from 'TemplateList' to '3'
         return <TemplateListPage />;
-      case 'Subscription':
+      case 'Subscription': // Changed from 'Subscription' to '4'
         return <SubscriptionPage />;
-      case 'Settings':
+      case 'Settings': // Changed from 'Settings' to '5'
         return <SettingsPage/>
       default:
-        return <Workbench />;
+        return <Workbench 
+          isFeedbackDrawerOpen={isFeedbackDrawerOpen} 
+          setIsFeedbackDrawerOpen={setIsFeedbackDrawerOpen} 
+        />;
     }
   };
 

@@ -1,5 +1,6 @@
-import React from 'react';
-import { Card, Empty, Typography, Table, Tag, Space, Divider, Spin, Alert } from 'antd';
+import React, { useState } from 'react';
+import { Card, Empty, Typography, Table, Tag, Space, Divider, Spin, Alert, Button } from 'antd';
+import { LikeOutlined, DislikeOutlined, RedoOutlined, LikeFilled } from '@ant-design/icons';
 
 const { Paragraph, Text } = Typography;
 
@@ -8,6 +9,9 @@ interface ResultsDisplayProps {
   status: 'analyzing' | 'resultsReady';
   data: any;
   thinkingSteps: { tool: string; params: any, thought?: string } | null;
+  onUpvote: (query: string) => void;
+  onDownvote: (query: string) => void;
+  onRetry: (query: string) => void;
 }
 
 const ThinkingSteps: React.FC<{ steps: { tool: string; params: any, thought?: string } }> = ({ steps }) => (
@@ -18,7 +22,7 @@ const ThinkingSteps: React.FC<{ steps: { tool: string; params: any, thought?: st
       <Text>1. 决定调用工具: <Tag color="blue">{steps.tool}</Tag></Text>
       <Text>2. 准备了以下参数:</Text>
       <pre style={{ 
-        background: '#1f2123', // A darker shade for contrast
+        background: '#1f2123',
         border: '1px solid rgba(255, 255, 255, 0.1)',
         padding: '8px 12px', 
         borderRadius: 4, 
@@ -31,21 +35,41 @@ const ThinkingSteps: React.FC<{ steps: { tool: string; params: any, thought?: st
   </div>
 );
 
-const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ query, status, data, thinkingSteps }) => {
-  // Removed isVisible state and useEffect for opacity transition
+const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ query, status, data, thinkingSteps, onUpvote, onDownvote, onRetry }) => {
+  const [voted, setVoted] = useState<'up' | null>(null);
+
+  const handleUpvoteClick = () => {
+    setVoted('up');
+    onUpvote(query);
+  };
+
+  const handleDownvoteClick = () => {
+    onDownvote(query);
+  };
+
+  const handleRetryClick = () => {
+    onRetry(query);
+  };
 
   const renderContent = () => {
+    // Define actions here so they are available for both success and error states
+    const commonActions = (
+      <Space size="small"> {/* Use Space component to control spacing */}
+        <Button type="text" icon={voted === 'up' ? <LikeFilled style={{ color: '#1890ff' }} /> : <LikeOutlined />} onClick={handleUpvoteClick} />
+        <Button type="text" icon={<DislikeOutlined />} onClick={handleDownvoteClick} />
+        <Button type="text" icon={<RedoOutlined />} onClick={handleRetryClick} />
+      </Space>
+    );
+
     if (status === 'analyzing') {
       return (
         <Card 
           title={`Query: "${query}"`}
-          style={{
-            background: '#2a2d30',
-            border: '1px solid rgba(255, 255, 255, 0.15)',
-          }}
+          // Actions are not typically shown during analyzing state, but if needed, can be added here
+          style={{ background: '#2a2d30', border: '1px solid rgba(255, 255, 255, 0.15)' }}
         >
           <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '150px' }}>
-            <Spin tip="AI 正在分析中..." size="large" /> {/* Added size="large" */}
+            <Spin tip="AI 正在分析中..." size="large" />
           </div>
         </Card>
       );
@@ -54,23 +78,25 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ query, status, data, th
     if (status === 'resultsReady') {
       if (data && data.error) {
         return (
-          <Alert
-            message="分析失败"
-            description={data.error}
-            type="error"
-            showIcon
-          />
+          <Card actions={[commonActions]} style={{ background: '#2a2d30', border: '1px solid rgba(255, 255, 255, 0.15)' }}>
+            <Alert
+              message="分析失败"
+              description={data.error}
+              type="error"
+              showIcon
+            />
+          </Card>
         );
       }
 
       if (!data) {
-        return <Empty description="分析完成，但没有返回结果。" />;
+        return <Card actions={[commonActions]}><Empty description="分析完成，但没有返回结果。" /></Card>;
       }
 
       const { columns: originalColumns, rows } = data;
 
       if (!originalColumns || !rows || rows.length === 0) {
-        return <Empty description="分析完成，但没有返回结果。" />;
+        return <Card actions={[commonActions]}><Empty description="分析完成，但没有返回结果。" /></Card>;
       }
 
       const tableColumns = originalColumns.map((colName: string, index: number) => ({
@@ -90,10 +116,8 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ query, status, data, th
       return (
         <Card 
           title={`Query: "${query}"`}
-          style={{
-            background: '#2a2d30', // A slightly lighter, premium charcoal color
-            border: '1px solid rgba(255, 255, 255, 0.15)', // A subtle "glow" border
-          }}
+          actions={[commonActions]} // Pass the Space component as an array to actions
+          style={{ background: '#2a2d30', border: '1px solid rgba(255, 255, 255, 0.15)' }}
         >
           {thinkingSteps && (
             <>
@@ -116,7 +140,7 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ query, status, data, th
   };
 
   return (
-    <div style={{ marginBottom: '24px' }}> {/* Removed opacity transition */}
+    <div style={{ marginBottom: '24px' }}>
       {renderContent()}
     </div>
   );
