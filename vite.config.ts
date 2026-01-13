@@ -34,7 +34,9 @@ const manifest: any = { // <-- Changed from defineManifest to 'any'
         "storage",
         "unlimitedStorage",
         "activeTab",
-        "scripting"
+        "scripting",
+        "sidePanel", // Added sidePanel permission
+        "tabs"
     ],
     // --- Ensure host_permissions are here ---
     host_permissions: [
@@ -68,7 +70,10 @@ const manifest: any = { // <-- Changed from defineManifest to 'any'
             "resources": ["index.html", "sandbox.html", "assets/*", "extensions/*", "assets/content-script.js"],
             "matches": ["<all_urls>"]
         }
-    ]
+    ],
+    side_panel: { // Added side_panel configuration
+        "default_path": "index.html"
+    }
 };
 // --- END CRITICAL CORRECTION ---
 

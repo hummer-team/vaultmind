@@ -14,10 +14,28 @@ const App = () => {
   const [currentPage, setCurrentPage] = useState('1');
   const [isFeedbackDrawerOpen, setIsFeedbackDrawerOpen] = useState(false);
 
-  const handleMenuClick: MenuProps['onClick'] = (e) => {
+  // Make the function async to use await
+  const handleMenuClick: MenuProps['onClick'] = async (e) => {
     console.log('Menu clicked:', e.key);
     if (e.key === 'feedback') {
       setIsFeedbackDrawerOpen(true);
+      return;
+    }
+    if (e.key === 'fullscreen') {
+      if (chrome.tabs && chrome.runtime) {
+        try {
+          // First, await the closing of the current side panel
+          await chrome.runtime.sendMessage({ type: 'CLOSE_SIDEBAR' });
+          // Then, open in a new tab
+          chrome.tabs.create({ url: chrome.runtime.getURL('index.html') });
+        } catch (error) {
+          console.error("Error during fullscreen action:", error);
+          // Fallback: still open the new tab even if closing fails
+          chrome.tabs.create({ url: chrome.runtime.getURL('index.html') });
+        }
+      } else {
+        console.warn('Chrome APIs not available for fullscreen action.');
+      }
       return;
     }
     setCurrentPage(e.key);

@@ -8,10 +8,10 @@ import {
   CrownOutlined,
   DownOutlined,
   MessageOutlined,
-  CloseOutlined, // Added CloseOutlined
+  FullscreenOutlined, // Added FullscreenOutlined
 } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
-import { Layout, Menu, Typography, Space, FloatButton, Popover, Avatar, Button } from 'antd'; // Added Button
+import { Layout, Menu, Typography, Space, FloatButton, Popover, Avatar /* Removed Button */ } from 'antd';
 
 const { Content, Sider } = Layout;
 const { Title } = Typography;
@@ -34,6 +34,7 @@ const items: MenuItem[] = [
   getItem('Subscription', '4', <CrownOutlined />),
   getItem('Feedback', 'feedback', <MessageOutlined />),
   getItem('Settings', '5', <SettingOutlined />),
+  getItem('Fullscreen', 'fullscreen', <FullscreenOutlined />), // Added Fullscreen menu item
 ];
 
 interface AppLayoutProps {
@@ -60,15 +61,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children, currentKey, onMenuClick
     }
   };
 
-  // Function to handle closing the sidebar
-  const handleCloseSidebar = () => {
-    console.log('Sending CLOSE_SIDEBAR message from AppLayout.');
-    if (chrome.runtime && chrome.runtime.sendMessage) {
-      chrome.runtime.sendMessage({ type: 'CLOSE_SIDEBAR' });
-    } else {
-      console.warn('chrome.runtime.sendMessage is not available. Are you in a browser context?');
-    }
-  };
+  // Removed handleCloseSidebar function as it's no longer needed for sidePanel
 
   useEffect(() => {
     const content = contentRef.current;
@@ -76,19 +69,21 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children, currentKey, onMenuClick
 
     const handleScroll = () => {
       const { scrollTop, scrollHeight, clientHeight } = content;
-      const isAtBottom = scrollHeight - scrollTop - clientHeight < 20;
-      setShowScrollToBottom(!isAtBottom);
+      const isAtBottom = scrollHeight - scrollTop - clientHeight < 20; // Within 20px of bottom
+      // Removed isAtTop check
+      // Only show if content is scrollable AND not at the bottom
+      setShowScrollToBottom(scrollHeight > clientHeight && !isAtBottom);
     };
 
     content.addEventListener('scroll', handleScroll, { passive: true });
-    handleScroll();
+    handleScroll(); // Call once on mount to set initial state
 
     return () => content.removeEventListener('scroll', handleScroll);
   }, [children]);
 
   return (
     <Layout style={{ height: '100vh' }}>
-      <Sider collapsible collapsed={collapsed} onCollapse={(value) => setCollapsed(value)} style={{ display: 'flex', flexDirection: 'column' }}>
+      <Sider collapsible collapsed={collapsed} onCollapse={(value) => setCollapsed(value)} collapsedWidth={48} style={{ display: 'flex', flexDirection: 'column' }}> {/* Adjusted collapsedWidth */}
         <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           <div 
             style={{ 
@@ -131,7 +126,13 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children, currentKey, onMenuClick
             style={{ flex: 1, minHeight: 0 }}
           />
         </div>
-        <div style={{ padding: '16px', flexShrink: 0 }}>
+        <div style={{ 
+          padding: collapsed ? '16px 0' : '16px', // Adjust padding based on collapsed state
+          flexShrink: 0,
+          display: 'flex',
+          justifyContent: collapsed ? 'center' : 'flex-start', // Center when collapsed
+          alignItems: 'center',
+        }}>
           <Popover content={userMenuContent} placement="rightBottom" trigger="click">
             <Space style={{ cursor: 'pointer' }}>
               <Avatar icon={<UserOutlined />} />
@@ -145,21 +146,8 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children, currentKey, onMenuClick
         flexDirection: 'column',
         background: `radial-gradient(circle at top, #2a2a2e, #1e1e20)`
       }}>
-        {/* Added header for close button */}
-        <div style={{ 
-          display: 'flex', 
-          justifyContent: 'flex-end', 
-          padding: '8px 16px 0 0', // Adjust padding as needed
-          flexShrink: 0 
-        }}>
-          <Button 
-            type="text" 
-            icon={<CloseOutlined style={{ color: 'white' }} />} 
-            onClick={handleCloseSidebar} 
-            style={{ color: 'white' }}
-          />
-        </div>
-        <Content ref={contentRef} style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column', margin: '0 16px 16px 16px' }}> {/* Adjusted margin */}
+        {/* Removed header for close button */}
+        <Content ref={contentRef} style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column', margin: '16px' }}> {/* Adjusted margin back to original */}
           {children}
         </Content>
       </Layout>
