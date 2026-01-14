@@ -9,9 +9,6 @@ import duckdb_worker_eh from '@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.
 import duckdb_pthread_worker_from_url from '@duckdb/duckdb-wasm/dist/duckdb-browser-coi.pthread.worker.js?url';
 import duckdb_pthread_worker_content from '@duckdb/duckdb-wasm/dist/duckdb-browser-coi.pthread.worker.js?raw'; // <-- Import as raw text
 
-// REMOVE this import:
-// import our_duckdb_worker_script_url from '../workers/duckdb.worker.ts?url';
-
 interface AppMessage {
   type: string;
   id: string;
@@ -88,9 +85,9 @@ export const useDuckDB = (iframeRef: React.RefObject<HTMLIFrameElement>) => {
         }, 100);
       });
     }
-    
+
     console.log('[useDuckDB] Sandbox ready. Building bundle with absolute paths...');
-    
+
     // Manually construct the URL to the predictably-named worker script
     const our_duckdb_worker_script_url = chrome.runtime.getURL('assets/duckdb.worker.js');
     console.log('[useDuckDB] Manually constructed worker URL:', our_duckdb_worker_script_url);
@@ -125,12 +122,36 @@ export const useDuckDB = (iframeRef: React.RefObject<HTMLIFrameElement>) => {
   );
 
   const executeQuery = useCallback(
-    (sql: string) => {
+    (sql: string): Promise<any[]> => { // Assuming executeQuery returns an array of objects
       if (!isDBReady) return Promise.reject(new Error('DuckDB is not ready.'));
       return sendMessageToSandbox({ type: 'DUCKDB_EXECUTE_QUERY', sql });
     },
     [sendMessageToSandbox, isDBReady]
   );
 
-  return { initializeDuckDB, loadData, executeQuery, isDBReady };
+  const dropTable = useCallback(
+    (tableName: string) => {
+      if (!isDBReady) return Promise.reject(new Error('DuckDB is not ready.'));
+      const sql = `DROP TABLE IF EXISTS "${tableName}";`;
+      return sendMessageToSandbox({ type: 'DUCKDB_EXECUTE_QUERY', sql });
+    },
+    [sendMessageToSandbox, isDBReady]
+  );
+
+  const getAllUserTables = useCallback(async (): Promise<string[]> => {
+    if (!isDBReady) {
+      console.warn('[useDuckDB] DB not ready, returning empty table list.');
+      return [];
+    }
+    try {
+      const result = await executeQuery("SELECT table_name FROM information_schema.tables WHERE table_name LIKE 'main_table_%';");
+      // The result from duckdb-wasm is typically an array of objects
+      return result.map((row: any) => row.table_name);
+    } catch (error) {
+      console.error('[useDuckDB] Failed to get all user tables:', error);
+      return [];
+    }
+  }, [executeQuery, isDBReady]);
+
+  return { initializeDuckDB, loadData, executeQuery, dropTable, getAllUserTables, isDBReady };
 };
