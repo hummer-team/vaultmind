@@ -65,6 +65,31 @@ export class AgentExecutor {
     return schemas.join('\n\n');
   }
 
+  /**
+   * Recursively sanitizes BigInt values in data structures to strings.
+   * DuckDB returns BigInts for COUNT/SUM, which need to be converted for JSON serialization/display.
+   * @param data The data structure to sanitize.
+   * @returns The sanitized data structure.
+   */
+  private _sanitizeBigInts(data: any): any {
+    if (typeof data === 'bigint') {
+      return data.toString();
+    }
+    if (Array.isArray(data)) {
+      return data.map(item => this._sanitizeBigInts(item));
+    }
+    if (typeof data === 'object' && data !== null) {
+      const newData: { [key: string]: any } = {};
+      for (const key in data) {
+        if (Object.prototype.hasOwnProperty.call(data, key)) {
+          newData[key] = this._sanitizeBigInts(data[key]);
+        }
+      }
+      return newData;
+    }
+    return data;
+  }
+
   public async execute(userInput: string): Promise<any> {
     try {
       const allTableSchemas = await this._getAllTableSchemas();
@@ -171,11 +196,12 @@ export class AgentExecutor {
         }
 
         const toolResult = await toolFunction(this.executeQuery, args);
+        const sanitizedResult = this._sanitizeBigInts(toolResult); // Sanitize BigInts here
 
         return {
           tool: toolName,
           params: args,
-          result: toolResult,
+          result: sanitizedResult, // Return sanitized result
           thought: thought,
         };
       } else {

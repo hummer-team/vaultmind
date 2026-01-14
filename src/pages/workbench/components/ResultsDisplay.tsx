@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { Card, Empty, Typography, Table, Tag, Space, Divider, Spin, Alert, Button } from 'antd';
+import { Card, Empty, Typography, Table, Tag, Space, Divider, Spin, Alert, Button, Collapse, Avatar } from 'antd';
 import { LikeOutlined, DislikeOutlined, RedoOutlined, LikeFilled } from '@ant-design/icons';
 
-const { Paragraph, Text } = Typography;
+const { Paragraph} = Typography;
 
 interface ResultsDisplayProps {
   query: string;
@@ -15,25 +15,41 @@ interface ResultsDisplayProps {
 }
 
 const ThinkingSteps: React.FC<{ steps: { tool: string; params: any, thought?: string } }> = ({ steps }) => (
-  <div style={{ marginBottom: 16 }}>
-    <Paragraph><strong>AI 思考步骤:</strong></Paragraph>
-    <Space direction="vertical" style={{ width: '100%' }}>
-      {steps.thought && <Text><strong>思考:</strong> {steps.thought}</Text>}
-      <Text>1. 决定调用工具: <Tag color="blue">{steps.tool}</Tag></Text>
-      <Text>2. 准备了以下参数:</Text>
-      <pre style={{ 
-        background: '#1f2123',
-        border: '1px solid rgba(255, 255, 255, 0.1)',
-        padding: '8px 12px', 
-        borderRadius: 4, 
-        whiteSpace: 'pre-wrap', 
-        wordBreak: 'break-all' 
-      }}>
-        <code>{JSON.stringify(steps.params, null, 2)}</code>
-      </pre>
-    </Space>
-  </div>
+  <Collapse ghost>
+    <Collapse.Panel header="思考过程" key="1">
+      <Space direction="vertical" style={{ width: '100%', gap: '16px' }}>
+        {steps.thought && (
+          <Space align="start">
+            <Avatar src="/icons/icon-128.png" size={24} />
+            <Typography.Text style={{ color: '#d9d9d9' }}>{steps.thought}</Typography.Text>
+          </Space>
+        )}
+
+        <div>
+          <Typography.Text strong>1. 决定调用工具</Typography.Text>
+          <div style={{ marginTop: '4px' }}>
+            <Tag color="blue">{steps.tool}</Tag>
+          </div>
+        </div>
+        <div>
+          <Typography.Text strong>2. 准备了以下参数</Typography.Text>
+          <pre style={{
+            background: '#1f2123',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            padding: '8px 12px',
+            borderRadius: 4,
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-all',
+            marginTop: '4px'
+          }}>
+            <code>{JSON.stringify(steps.params, null, 2)}</code>
+          </pre>
+        </div>
+      </Space>
+    </Collapse.Panel>
+  </Collapse>
 );
+
 
 const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ query, status, data, thinkingSteps, onUpvote, onDownvote, onRetry }) => {
   const [voted, setVoted] = useState<'up' | null>(null);
@@ -52,20 +68,20 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ query, status, data, th
   };
 
   const renderContent = () => {
-    // Define actions here so they are available for both success and error states
     const commonActions = (
-      <Space size="small"> {/* Use Space component to control spacing */}
-        <Button type="text" icon={voted === 'up' ? <LikeFilled style={{ color: '#1890ff' }} /> : <LikeOutlined />} onClick={handleUpvoteClick} />
-        <Button type="text" icon={<DislikeOutlined />} onClick={handleDownvoteClick} />
-        <Button type="text" icon={<RedoOutlined />} onClick={handleRetryClick} />
-      </Space>
+      <div style={{ paddingTop: '8px' }}>
+        <Space size="small">
+          <Button type="text" icon={voted === 'up' ? <LikeFilled style={{ color: '#1890ff' }} /> : <LikeOutlined />} onClick={handleUpvoteClick} />
+          <Button type="text" icon={<DislikeOutlined />} onClick={handleDownvoteClick} />
+          <Button type="text" icon={<RedoOutlined />} onClick={handleRetryClick} />
+        </Space>
+      </div>
     );
 
     if (status === 'analyzing') {
       return (
         <Card 
           title={`Query: "${query}"`}
-          // Actions are not typically shown during analyzing state, but if needed, can be added here
           style={{ background: '#2a2d30', border: '1px solid rgba(255, 255, 255, 0.15)' }}
         >
           <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '150px' }}>
@@ -116,7 +132,7 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ query, status, data, th
       return (
         <Card 
           title={`Query: "${query}"`}
-          actions={[commonActions]} // Pass the Space component as an array to actions
+          actions={[commonActions]}
           style={{ background: '#2a2d30', border: '1px solid rgba(255, 255, 255, 0.15)' }}
         >
           {thinkingSteps && (
@@ -129,7 +145,11 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ query, status, data, th
           <Table
             dataSource={tableDataSource}
             columns={tableColumns}
-            pagination={{ pageSize: 5 }}
+            pagination={{
+              defaultPageSize: 20,
+              showSizeChanger: true,
+              pageSizeOptions: ['10', '20', '50', '100'],
+            }}
             size="small"
           />
         </Card>

@@ -53,7 +53,7 @@ const InitialWelcomeView: React.FC = () => (
 
 const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
   const { token: { borderRadiusLG } } = theme.useToken();
-  const { message } = App.useApp(); // Re-added message from App.useApp()
+  App.useApp(); // Re-added message from App.useApp()
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -213,7 +213,7 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
 
   const handleUpvote = (query: string) => {
     console.log(`Upvoted query: "${query}". Backend call would be here.`);
-    message.success('Thanks for your feedback!');
+    //message.success('Thanks for your feedback!');
     return Promise.resolve({ status: 'success' });
   };
 
