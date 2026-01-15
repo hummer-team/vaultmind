@@ -1,25 +1,28 @@
 import React from 'react';
 import { Input, Button, Form, Tag, Space, Upload, FloatButton, Typography, Spin, Tooltip } from 'antd';
-import { PaperClipOutlined, DownOutlined, CloseCircleFilled } from '@ant-design/icons';
+import { PaperClipOutlined, DownOutlined, CloseCircleFilled, StopOutlined } from '@ant-design/icons';
 import type { UploadProps } from 'antd';
 import { Attachment } from '../../../types/workbench.types';
+import './ChatPanel.css'; // Import a CSS file for animations
 
 interface ChatPanelProps {
   onSendMessage: (message: string) => void;
   isAnalyzing: boolean;
+  onCancel: () => void;
   suggestions?: string[];
   onFileUpload: (file: File) => Promise<boolean | void>;
   attachments: Attachment[];
   onDeleteAttachment: (attachmentId: string) => void;
   error: string | null;
   setError: (error: string | null) => void;
-  showScrollToBottom: boolean; // Restored prop
-  onScrollToBottom: () => void; // Restored prop
+  showScrollToBottom: boolean;
+  onScrollToBottom: () => void;
 }
 
 const ChatPanel: React.FC<ChatPanelProps> = ({
   onSendMessage,
   isAnalyzing,
+  onCancel,
   suggestions,
   onFileUpload,
   attachments,
@@ -65,7 +68,6 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', position: 'relative' }}>
-      {/* Scroll to Bottom Button */}
       <FloatButton
         icon={<DownOutlined />}
         onClick={onScrollToBottom}
@@ -119,9 +121,9 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
             <Input.TextArea
               placeholder={placeholderText}
               disabled={isAnalyzing}
-              style={{ height: 120, resize: 'none', paddingBottom: '40px' }}
+              style={{ height: 120, resize: 'none', paddingBottom: '40px', paddingRight: '40px' }}
               onKeyDown={handleKeyDown}
-              onChange={() => error && setError(null)} // Clear error on typing
+              onChange={() => error && setError(null)}
             />
           </Form.Item>
           <div style={{ position: 'absolute', bottom: '8px', left: '8px', display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -134,6 +136,21 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
               </Typography.Text>
             )}
           </div>
+          {isAnalyzing && (
+            <Tooltip title="Cancel Analysis">
+              <Button
+                shape="circle"
+                icon={<StopOutlined />}
+                onClick={onCancel}
+                className="cancel-button-pulse"
+                style={{
+                  position: 'absolute',
+                  bottom: '8px',
+                  right: '8px',
+                }}
+              />
+            </Tooltip>
+          )}
         </div>
       </Form>
     </div>

@@ -53,7 +53,8 @@ const InitialWelcomeView: React.FC = () => (
 
 const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
   const { token: { borderRadiusLG } } = theme.useToken();
-  App.useApp(); // Re-added message from App.useApp()
+  const { message } = App.useApp();
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -76,7 +77,6 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
 
   const agentExecutor = useMemo(() => {
     if (!isDBReady || !executeQuery) return null;
-    // Corrected instantiation
     return new AgentExecutor(llmConfig, executeQuery);
   }, [llmConfig, executeQuery, isDBReady]);
 
@@ -160,7 +160,7 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
     if (!attachmentToDelete) return;
 
     setAttachments((prev) => prev.filter((att) => att.id !== attachmentId));
-    
+
     if (attachmentToDelete.status === 'success') {
       try {
         await dropTable(attachmentToDelete.tableName);
@@ -182,21 +182,26 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
     }
     setChatError(null);
 
+    abortControllerRef.current = new AbortController();
+    const signal = abortControllerRef.current.signal;
+
     const newRecordId = `record-${Date.now()}`;
     const newRecord: AnalysisRecord = { id: newRecordId, query, thinkingSteps: null, result: null, status: 'analyzing' };
     setAnalysisHistory((prev) => [...prev, newRecord]);
     setUiState('analyzing');
 
-    // The context prompt is now simplified as AgentExecutor handles the schema details
-    const contextPrompt = `Context: The user has uploaded the following files. Please use the available tables in the database to answer the request.\n- ${attachments.map(att => att.file.name).join('\n- ')}\n\nUser's request: ${query}`;
-    
-    console.log('[Workbench] Sending prompt with context:', contextPrompt);
-
     try {
-      const { tool, params, result, thought } = await agentExecutor.execute(query); // Pass original query
+      const result = await agentExecutor.execute(query, signal);
+
+      if (result.cancelled) {
+        setAnalysisHistory((prev) => prev.filter((rec) => rec.id !== newRecordId));
+        setUiState('fileLoaded');
+        return;
+      }
+
       setAnalysisHistory((prev) =>
         prev.map((rec) =>
-          rec.id === newRecordId ? { ...rec, status: 'resultsReady', thinkingSteps: { tool, params, thought }, result } : rec
+          rec.id === newRecordId ? { ...rec, status: 'resultsReady', thinkingSteps: { tool: result.tool, params: result.params, thought: result.thought }, result: result.result } : rec
         )
       );
     } catch (error: any) {
@@ -208,23 +213,36 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
       );
     } finally {
       setUiState('fileLoaded');
+      abortControllerRef.current = null;
+    }
+  };
+
+  const handleCancelAnalysis = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      console.log('[Workbench] Analysis cancellation requested.');
     }
   };
 
   const handleUpvote = (query: string) => {
     console.log(`Upvoted query: "${query}". Backend call would be here.`);
-    //message.success('Thanks for your feedback!');
+    message.success('Thanks for your feedback!');
     return Promise.resolve({ status: 'success' });
   };
 
   const handleDownvote = (query: string) => {
     console.log(`Downvoted query: "${query}". Opening feedback drawer.`);
-    setIsFeedbackDrawerOpen(true); // Use the passed function
+    setIsFeedbackDrawerOpen(true);
   };
 
   const handleRetry = (query: string) => {
     console.log(`Retrying query: "${query}".`);
     handleStartAnalysis(query);
+  };
+
+  const handleDeleteRecord = (recordId: string) => {
+    setAnalysisHistory((prev) => prev.filter((rec) => rec.id !== recordId));
+    message.success('分析记录已删除');
   };
 
   const handleScrollToBottom = () => {
@@ -252,9 +270,10 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
             status={record.status}
             data={record.result}
             thinkingSteps={record.thinkingSteps}
-            onUpvote={handleUpvote} // Restored
-            onDownvote={handleDownvote} // Restored
-            onRetry={handleRetry} // Restored
+            onUpvote={handleUpvote}
+            onDownvote={handleDownvote}
+            onRetry={handleRetry}
+            onDelete={() => handleDeleteRecord(record.id)} // Pass delete handler
           />
         ))}
       </div>
@@ -278,6 +297,7 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
             <ChatPanel
               onSendMessage={handleStartAnalysis}
               isAnalyzing={uiState === 'analyzing'}
+              onCancel={handleCancelAnalysis}
               suggestions={suggestions}
               onFileUpload={handleFileUpload}
               attachments={attachments}

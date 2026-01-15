@@ -27,10 +27,20 @@ export class LLMClient {
       apiKey: config.apiKey,
       baseURL: config.baseURL,
       dangerouslyAllowBrowser: true,
+      // Add a default timeout to the client, can be overridden per request
+      timeout: 60 * 1000, // 60 seconds
     });
 
     this.modelName = config.modelName;
 
     console.log(`[LLMClient] Official OpenAI client for model "${config.modelName}" created successfully.`);
+  }
+
+  // Method to call chat completions with AbortSignal support
+  public async chatCompletions(
+    params: OpenAI.Chat.ChatCompletionCreateParamsNonStreaming,
+    signal?: AbortSignal,
+  ): Promise<OpenAI.Chat.ChatCompletion> {
+    return this.client.chat.completions.create(params, { signal });
   }
 }

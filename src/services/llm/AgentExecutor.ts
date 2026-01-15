@@ -1,6 +1,7 @@
 import { PromptManager } from './PromptManager';
 import { tools, toolSchemas } from '../tools/DuckdbTools';
 import { LLMClient, LLMConfig } from './LLMClient';
+import OpenAI from 'openai';
 
 export type ExecuteQueryFunc = (sql: string) => Promise<any>;
 
@@ -22,17 +23,13 @@ export class AgentExecutor {
     );
     
     let tableNames: string[] = [];
-    // Check if the result is the expected object with a 'rows' array
     if (tablesResult && Array.isArray(tablesResult.rows)) {
-      // Extract table name from each sub-array in 'rows'
       tableNames = tablesResult.rows.map((row: any[]) => row[0]);
     }
 
     console.log('[AgentExecutor] Fetched tables:', tableNames);
 
     if (tableNames.length === 0) {
-      // If no user tables, fallback to old behavior for single-file case.
-      // This can be removed if single-file uploads also use the main_table_1 convention.
       try {
         const schema = await this.executeQuery(`DESCRIBE main_table;`);
         const schemaString = schema
@@ -47,10 +44,9 @@ export class AgentExecutor {
     const schemaPromises = tableNames.map(async (tableName: string) => {
       try {
         const schema = await this.executeQuery(`DESCRIBE "${tableName}";`);
-        // The schema result is also an object with a 'rows' property
         if (schema && Array.isArray(schema.rows)) {
             const schemaString = schema.rows
-              .map((col: any[]) => `  - ${col[0]} (${col[1]})`) // Assuming name is at index 0, type at index 1
+              .map((col: any[]) => `  - ${col[0]} (${col[1]})`)
               .join('\n');
             return `Table: ${tableName}\nColumns:\n${schemaString}`;
         }
@@ -90,7 +86,7 @@ export class AgentExecutor {
     return data;
   }
 
-  public async execute(userInput: string): Promise<any> {
+  public async execute(userInput: string, signal?: AbortSignal): Promise<any> {
     try {
       const allTableSchemas = await this._getAllTableSchemas();
       if (!allTableSchemas) {
@@ -131,8 +127,8 @@ export class AgentExecutor {
         };
         await new Promise((resolve) => setTimeout(resolve, 500));
       } else {
-        console.log('[AgentExecutor] Calling official openai.chat.completions.create...');
-        response = await this.llmClient.client.chat.completions.create({
+        console.log('[AgentExecutor] Calling LLM with cancellable signal...');
+        const params: OpenAI.Chat.ChatCompletionCreateParamsNonStreaming = {
           model: this.llmClient.modelName,
           messages: [
             {
@@ -151,7 +147,8 @@ export class AgentExecutor {
             },
           })),
           tool_choice: 'auto',
-        });
+        };
+        response = await this.llmClient.chatCompletions(params, signal);
       }
 
       const message = response.choices[0].message;
@@ -196,18 +193,23 @@ export class AgentExecutor {
         }
 
         const toolResult = await toolFunction(this.executeQuery, args);
-        const sanitizedResult = this._sanitizeBigInts(toolResult); // Sanitize BigInts here
+        const sanitizedResult = this._sanitizeBigInts(toolResult);
 
         return {
           tool: toolName,
           params: args,
-          result: sanitizedResult, // Return sanitized result
+          result: sanitizedResult,
           thought: thought,
         };
       } else {
         throw new Error(`Unsupported tool type: ${toolCall.type}`);
       }
-    } catch (error) {
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        console.log('[AgentExecutor] Analysis cancelled by user.');
+        // Return a specific object or null to indicate cancellation
+        return { cancelled: true };
+      }
       console.error('Agent execution failed:', error);
       throw error;
     }
