@@ -139,7 +139,7 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ query, status, data, th
           <Card {...cardProps}>
             {commonContent}
             <Alert
-              message="抱歉，我无法理解您的指令，请修改指令后重新尝试"
+              message="抱歉，我无法理解您的指令"
               description={data.error}
               type="error"
               showIcon
