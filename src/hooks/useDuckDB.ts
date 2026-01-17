@@ -17,6 +17,11 @@ interface SandboxResponse {
 
 type MessageCallback = { resolve: (value: any) => void; reject: (reason?: any) => void };
 
+// Module-level guards to ensure DuckDB is initialized only once per page session
+let _duckdbInitialized = false;
+let _duckdbInitializingPromise: Promise<any> | null = null;
+let _unloadHandlerRegistered = false;
+
 export const useDuckDB = (iframeRef: React.RefObject<HTMLIFrameElement>) => {
   const messageCallbacks = useRef<Map<string, MessageCallback>>(new Map());
   const [isDBReady, setIsDBReady] = useState(false);
@@ -35,6 +40,7 @@ export const useDuckDB = (iframeRef: React.RefObject<HTMLIFrameElement>) => {
           const callback = messageCallbacks.current.get(id)!;
           if (type.endsWith('_SUCCESS')) {
             if (type === 'DUCKDB_INIT_SUCCESS') {
+              _duckdbInitialized = true; // ensure module-level flag is set
               setIsDBReady(true);
             }
             callback.resolve(result);
@@ -54,7 +60,7 @@ export const useDuckDB = (iframeRef: React.RefObject<HTMLIFrameElement>) => {
   }, [iframeRef]);
   
   const sendMessageToSandbox = useCallback(
-    <T>(message: Omit<AppMessage, 'id'>, transferables?: Transferable[]): Promise<T> => {
+    <T,>(message: Omit<AppMessage, 'id'>, transferables?: Transferable[]): Promise<T> => {
       return new Promise((resolve, reject) => {
         if (!isSandboxReady || !iframeRef.current?.contentWindow) {
           return reject(new Error('Sandbox not ready.'));
@@ -67,28 +73,89 @@ export const useDuckDB = (iframeRef: React.RefObject<HTMLIFrameElement>) => {
     [isSandboxReady, iframeRef]
   );
 
+  // Shutdown logic: try to notify sandbox, clear module flags and local state
+  const shutdownDuckDB = useCallback(async (): Promise<void> => {
+    try {
+      // If sandbox is ready, try to send shutdown; ignore failures
+      if (iframeRef.current?.contentWindow && isSandboxReady) {
+        try {
+          // send a best-effort shutdown message; sandbox may or may not support it
+          const id = uuidv4();
+          // don't rely on callbacks map here; just post message
+          iframeRef.current.contentWindow.postMessage({ type: 'DUCKDB_SHUTDOWN', id }, '*');
+        } catch (e) {
+          console.warn('[useDuckDB] Failed to post DUCKDB_SHUTDOWN to sandbox:', e);
+        }
+      }
+    } finally {
+      // Clear module-level and hook-level flags so a fresh session will re-init
+      _duckdbInitialized = false;
+      _duckdbInitializingPromise = null;
+      setIsDBReady(false);
+      setIsSandboxReady(false);
+      // Clear pending callbacks to avoid memory leaks
+      messageCallbacks.current.forEach(cb => cb.reject(new Error('Shutdown')));
+      messageCallbacks.current.clear();
+    }
+  }, [iframeRef, isSandboxReady]);
+
   const initializeDuckDB = useCallback(async () => {
-    if (!isSandboxReady) {
-      await new Promise<void>(resolve => {
-        const interval = setInterval(() => {
-          if (isSandboxReady) {
-            clearInterval(interval);
-            resolve();
-          }
-        }, 100);
+    // If already initialized at module-level, ensure hook state reflects it and return early
+    if (_duckdbInitialized) {
+      setIsDBReady(true);
+      return Promise.resolve(true);
+    }
+
+    // If initialization in progress, return the same promise
+    if (_duckdbInitializingPromise) return _duckdbInitializingPromise;
+
+    // otherwise create and store the initializing promise
+    const initPromise = (async () => {
+      if (!isSandboxReady) {
+        await new Promise<void>(resolve => {
+          const interval = setInterval(() => {
+            if (isSandboxReady) {
+              clearInterval(interval);
+              resolve();
+            }
+          }, 100);
+        });
+      }
+
+      console.log('[useDuckDB] Sandbox ready. Getting DuckDB resources...');
+      const DUCKDB_RESOURCES = getDuckDBResources();
+
+      const extensionOrigin = chrome.runtime.getURL('/');
+      console.log('[useDuckDB] Calculated extensionOrigin:', extensionOrigin);
+
+      console.log('[useDuckDB] Sending DUCKDB_INIT to sandbox...');
+      const messageToSend = { type: 'DUCKDB_INIT', resources: JSON.parse(JSON.stringify(DUCKDB_RESOURCES)), extensionOrigin };
+      // sendMessageToSandbox will reject if sandbox not ready; this is wrapped in the above wait
+      const res = await sendMessageToSandbox(messageToSend);
+      // On success, flags will be set by message handler (DUCKDB_INIT_SUCCESS) but also set module flag here
+      _duckdbInitialized = true;
+      setIsDBReady(true);
+      return res;
+    })();
+
+    _duckdbInitializingPromise = initPromise;
+
+    // ensure unload handler registered once per page session
+    if (!_unloadHandlerRegistered) {
+      _unloadHandlerRegistered = true;
+      window.addEventListener('unload', () => {
+        // best-effort shutdown on unload
+        shutdownDuckDB().catch(err => console.warn('[useDuckDB] shutdown on unload failed:', err));
       });
     }
 
-    console.log('[useDuckDB] Sandbox ready. Getting DuckDB resources...');
-    const DUCKDB_RESOURCES = getDuckDBResources();
-    
-    const extensionOrigin = chrome.runtime.getURL('/');
-    console.log('[useDuckDB] Calculated extensionOrigin:', extensionOrigin);
+    // clean up the promise reference on completion/failure
+    initPromise.finally(() => {
+      _duckdbInitializingPromise = null;
+    });
 
-    console.log('[useDuckDB] Sending DUCKDB_INIT to sandbox...');
-    const messageToSend = { type: 'DUCKDB_INIT', resources: JSON.parse(JSON.stringify(DUCKDB_RESOURCES)), extensionOrigin };
-    return sendMessageToSandbox(messageToSend);
-  }, [isSandboxReady, sendMessageToSandbox]);
+    return initPromise;
+  }, [isSandboxReady, sendMessageToSandbox, shutdownDuckDB]);
 
   const loadData = useCallback(
     (tableName: string, buffer: Uint8Array) => {
@@ -130,5 +197,5 @@ export const useDuckDB = (iframeRef: React.RefObject<HTMLIFrameElement>) => {
     }
   }, [executeQuery, isDBReady]);
 
-  return { initializeDuckDB, loadData, executeQuery, dropTable, getAllUserTables, isDBReady };
+  return { initializeDuckDB, loadData, executeQuery, dropTable, getAllUserTables, isDBReady, shutdownDuckDB };
 };

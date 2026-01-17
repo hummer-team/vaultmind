@@ -322,7 +322,6 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
     return '';
   };
 
-  const isSpinning = uiState === 'initializing' || uiState === 'parsing';
 
   const renderAnalysisView = () => {
     if (uiState === 'selectingSheet' && sheetsToSelect) {
@@ -367,11 +366,22 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
     <>
       <Sandbox ref={iframeRef} />
       <div style={{ background: 'rgba(38, 38, 40, 0.6)', borderRadius: borderRadiusLG, display: 'flex', flexDirection: 'column', height: '100%', position: 'relative', border: '1px solid rgba(255, 255, 255, 0.1)', backdropFilter: 'blur(10px)' }}>
-        {isSpinning && (
-          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0, 0, 0, 0.05)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 10 }}>
-            <Spin tip={getLoadingTip()} size="large" />
-          </div>
-        )}
+        {/* Non-blocking top hint: show small spinner + text during initialization/parsing without blocking the UI */}
+        <div style={{ padding: '12px 24px' }}>
+          {uiState === 'initializing' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Spin size="small" />
+              <span style={{ color: 'rgba(255,255,255,0.85)' }}>Vaultmind 引擎初始化中...</span>
+            </div>
+          )}
+          {uiState === 'parsing' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Spin size="small" />
+              <span style={{ color: 'rgba(255,255,255,0.85)' }}>{getLoadingTip()}</span>
+            </div>
+          )}
+        </div>
+
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: '24px' }}>
           <div ref={contentRef} style={{ flex: 1, overflow: 'auto' }}>
             {renderAnalysisView()}
@@ -380,6 +390,7 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
             <ChatPanel
               onSendMessage={handleStartAnalysis}
               isAnalyzing={uiState === 'analyzing'}
+              isInitializing={uiState === 'initializing'}
               onCancel={handleCancelAnalysis}
               suggestions={suggestions}
               onFileUpload={handleFileUpload}

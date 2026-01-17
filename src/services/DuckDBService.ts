@@ -324,5 +324,30 @@ export class DuckDBService {
   public async getTableSchema(tableName: string): Promise<{ data: any[]; schema: any[] }> {
     return this.executeQuery(`DESCRIBE "${tableName}";`);
   }
+
+  // Graceful shutdown: attempt to terminate/cleanup any internal DB resources.
+  // This method is defensive because the underlying AsyncDuckDB API may not provide a specific shutdown method.
+  public async shutdown(): Promise<void> {
+    try {
+      if (this.db) {
+        try {
+          // If AsyncDuckDB exposes a terminate/close API, call it. Use any to avoid type errors.
+          const asAny = this.db as any;
+          if (typeof asAny.terminate === 'function') {
+            await asAny.terminate();
+          } else if (typeof asAny.close === 'function') {
+            await asAny.close();
+          }
+        } catch (e) {
+          // ignore errors from underlying runtime-specific shutdown
+          console.warn('[DuckDBService] Error while calling underlying shutdown on AsyncDuckDB:', e);
+        }
+        // Remove reference so GC can collect
+        this.db = null;
+      }
+    } catch (e) {
+      console.error('[DuckDBService] Error during shutdown:', e);
+    }
+  }
 }
 

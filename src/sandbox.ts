@@ -48,6 +48,78 @@ window.addEventListener('message', async (event) => {
     console.log('[Sandbox] Destructured extensionOrigin:', extensionOrigin);
     console.log('[Sandbox] Destructured id:', id);
 
+    // Handle shutdown message: try to forward to worker and terminate/cleanup
+    if (type === 'DUCKDB_SHUTDOWN') {
+        console.log('[Sandbox] Received DUCKDB_SHUTDOWN from parent.');
+        if (!duckdbWorker) {
+            console.warn('[Sandbox] No duckdbWorker to shutdown. Posting DUCKDB_SHUTDOWN_SUCCESS to parent.');
+            if (window.parent && window.parent !== window) {
+                window.parent.postMessage({ type: 'DUCKDB_SHUTDOWN_SUCCESS', id }, '*');
+            }
+            return;
+        }
+
+        // Try to send shutdown to worker and wait for ack; if no ack, force terminate after timeout
+        try {
+            const shutdownId = id || null;
+            // send best-effort shutdown request to worker
+            duckdbWorker.postMessage({ type: 'DUCKDB_SHUTDOWN', id: shutdownId });
+        } catch (e) {
+            console.warn('[Sandbox] Failed to post DUCKDB_SHUTDOWN to worker:', e);
+        }
+
+        // set up a short-lived listener for worker ack; if ack arrives, it will be handled in duckdbWorker.onmessage
+        const forceTimeout = setTimeout(() => {
+            try {
+                console.log('[Sandbox] Forcing duckdbWorker.terminate() after timeout.');
+                duckdbWorker?.terminate();
+            } catch (e) {
+                console.warn('[Sandbox] Error terminating duckdbWorker:', e);
+            } finally {
+                duckdbWorker = null;
+                if (window.parent && window.parent !== window) {
+                    window.parent.postMessage({ type: 'DUCKDB_SHUTDOWN_SUCCESS', id }, '*');
+                }
+            }
+        }, 500);
+
+        // Also attach a temporary onmessage wrapper to catch shutdown ack
+        const originalOnMessage = duckdbWorker.onmessage;
+        duckdbWorker.onmessage = (workerEvent) => {
+            try {
+                const wtype = workerEvent.data?.type;
+                console.log('[Sandbox] Received message from DuckDB Worker while shutting down:', wtype);
+                if (wtype === 'DUCKDB_SHUTDOWN_ACK' || wtype === 'DUCKDB_SHUTDOWN_SUCCESS') {
+                    clearTimeout(forceTimeout);
+                    try {
+                        duckdbWorker?.terminate();
+                    } catch (e) {
+                        console.warn('[Sandbox] Error terminating duckdbWorker after ack:', e);
+                    }
+                    duckdbWorker = null;
+                    if (window.parent && window.parent !== window) {
+                        window.parent.postMessage({ type: 'DUCKDB_SHUTDOWN_SUCCESS', id }, '*');
+                    }
+                    return;
+                }
+            } finally {
+                // Ensure other worker messages still flow to parent
+                try {
+                    if (window.parent && window.parent !== window) {
+                        const transfer = workerEvent.data && workerEvent.data.data instanceof ArrayBuffer ? [workerEvent.data.data] : [];
+                        window.parent.postMessage(workerEvent.data, '*', transfer);
+                    }
+                } catch (e) {
+                    console.warn('[Sandbox] Error forwarding worker message during shutdown handling:', e);
+                }
+                // restore original handler for non-shutdown messages
+                if (typeof originalOnMessage === 'function' && duckdbWorker) originalOnMessage.call(duckdbWorker, workerEvent);
+            }
+        };
+
+        return;
+    }
+
     // Special handling for DUCKDB_INIT to create the Worker and resolve resource URLs
     if (type === 'DUCKDB_INIT') {
         if (!resources)
@@ -127,3 +199,5 @@ if (window.parent && window.parent !== window) {
     console.log('[Sandbox] Sending SANDBOX_READY to parent.');
     window.parent.postMessage({type: 'SANDBOX_READY'}, '*'); // <-- Corrected event type
 }
+
+// End of sandbox.ts

@@ -4,6 +4,7 @@ import { DuckDBService } from '../services/DuckDBService';
 import * as duckdb from '@duckdb/duckdb-wasm';
 
 const duckDBService = DuckDBService.getInstance();
+let createdCoreWorker: Worker | null = null; // track core worker created during init so we can terminate on shutdown
 
 // resolveURL is no longer needed here as bundle URLs should now be absolute.
 
@@ -39,6 +40,7 @@ self.onmessage = async (event: MessageEvent) => {
         try {
             console.log('[DB Worker] Manually creating Core DuckDB worker from URL:', bundle.mainWorker);
             coreWorker = new Worker(bundle.mainWorker as string, { type: 'module' });
+            createdCoreWorker = coreWorker; // track it so shutdown can terminate
             console.log('[DB Worker] Manually created Core DuckDB worker instance:', coreWorker);
 
             console.log('[DB Worker] Calling duckDBService.initialize with Core Worker...');
@@ -56,7 +58,31 @@ self.onmessage = async (event: MessageEvent) => {
         }
         break;
       }
-      
+
+      case 'DUCKDB_SHUTDOWN': {
+        console.log('[DB Worker] Received DUCKDB_SHUTDOWN request.');
+        try {
+          // Attempt to shutdown the DuckDB service gracefully
+          await duckDBService.shutdown();
+          // Terminate the created core worker if we created one
+          if (createdCoreWorker) {
+            try {
+              createdCoreWorker.terminate();
+            } catch (e) {
+              console.warn('[DB Worker] Error terminating core worker:', e);
+            }
+            createdCoreWorker = null;
+          }
+
+          // Inform parent (sandbox) that shutdown succeeded
+          self.postMessage({ type: 'DUCKDB_SHUTDOWN_SUCCESS', id, result: true });
+        } catch (e: any) {
+          console.error('[DB Worker] Error during shutdown:', e);
+          self.postMessage({ type: 'DUCKDB_SHUTDOWN_ERROR', id, error: e?.message || String(e) });
+        }
+        break;
+      }
+
       case 'DUCKDB_REGISTER_FILE': {
         if (!fileName || !buffer) {
           throw new Error('Missing fileName or buffer for DUCKDB_REGISTER_FILE');
@@ -113,3 +139,4 @@ self.onmessage = async (event: MessageEvent) => {
 
 console.log('[DB Worker] self.onmessage handler assigned.'); // <-- Added this log
 console.log('[DB Worker] Worker script started and listening for messages.');
+

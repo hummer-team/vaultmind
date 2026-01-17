@@ -8,6 +8,7 @@ import './ChatPanel.css'; // Import a CSS file for animations
 interface ChatPanelProps {
   onSendMessage: (message: string) => void;
   isAnalyzing: boolean;
+  isInitializing?: boolean;
   onCancel: () => void;
   suggestions?: string[];
   onFileUpload: (file: File) => Promise<boolean | void>;
@@ -31,6 +32,7 @@ interface GroupedAttachment {
 const ChatPanel: React.FC<ChatPanelProps> = ({
   onSendMessage,
   isAnalyzing,
+  isInitializing = false,
   onCancel,
   suggestions,
   onFileUpload,
@@ -98,11 +100,12 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     disabled: isAnalyzing,
   };
 
-  const placeholderText = [
+  const defaultPlaceholder = [
     '1. Upload supported formats: Excel, CSV. Max file size: 1GB.',
     '2. Enter your question or analysis instruction.',
     '3. Press Control+Enter to submit.',
   ].join('\n');
+  const placeholderText = isInitializing ? 'Vaultmind 引擎初始化中...' : defaultPlaceholder;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', position: 'relative' }}>
@@ -170,12 +173,33 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
           <Form.Item name="message" noStyle>
             <Input.TextArea
               placeholder={placeholderText}
-              disabled={isAnalyzing}
+              disabled={isAnalyzing || isInitializing}
               style={{ height: 120, resize: 'none', paddingBottom: '40px', paddingRight: '40px' }}
               onKeyDown={handleKeyDown}
               onChange={() => error && setError(null)}
             />
           </Form.Item>
+          {/* Transparent overlay during initialization: blocks input but keeps UI visible */}
+          {isInitializing && (
+            <div
+              style={{
+                position: 'absolute',
+                inset: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: 'rgba(0,0,0,0)', // transparent
+                zIndex: 10,
+                cursor: 'not-allowed',
+                pointerEvents: 'auto',
+              }}
+            >
+              <Space>
+                <Spin size="small" />
+                <Typography.Text style={{ color: 'rgba(255,255,255,0.85)' }}>Vaultmind 引擎初始化中...</Typography.Text>
+              </Space>
+            </div>
+          )}
           <div style={{ position: 'absolute', bottom: '8px', left: '8px', display: 'flex', gap: '8px', alignItems: 'center' }}>
             <Upload {...uploadProps}>
               <Button icon={<PaperClipOutlined />} disabled={isAnalyzing} />
