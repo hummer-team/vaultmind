@@ -8,7 +8,7 @@ const duckDBService = DuckDBService.getInstance();
 // resolveURL is no longer needed here as bundle URLs should now be absolute.
 
 self.onmessage = async (event: MessageEvent) => {
-  const { type, id, resources, sql, tableName, buffer, fileName } = event.data; // Added fileName
+  const { type, id, resources, sql, tableName, buffer, fileName, sheetName } = event.data; // Added sheetName
 
   try {
     let result: any;
@@ -57,6 +57,26 @@ self.onmessage = async (event: MessageEvent) => {
         break;
       }
       
+      case 'DUCKDB_REGISTER_FILE': {
+        if (!fileName || !buffer) {
+          throw new Error('Missing fileName or buffer for DUCKDB_REGISTER_FILE');
+        }
+        console.log(`[DB Worker] Received DUCKDB_REGISTER_FILE for '${fileName}'`);
+        await duckDBService.registerFileBuffer(fileName, new Uint8Array(buffer));
+        result = true;
+        break;
+      }
+
+      case 'CREATE_TABLE_FROM_FILE': {
+        if (!tableName || !fileName) {
+          throw new Error('Missing tableName or fileName for CREATE_TABLE_FROM_FILE');
+        }
+        console.log(`[DB Worker] Received CREATE_TABLE_FROM_FILE for '${fileName}' into '${tableName}'`);
+        await duckDBService.createTableFromFile(tableName, fileName, sheetName);
+        result = true;
+        break;
+      }
+
       // --- NEW: Handle file loading ---
       case 'LOAD_FILE': {
         if (!fileName || !buffer || !tableName) {
@@ -64,7 +84,7 @@ self.onmessage = async (event: MessageEvent) => {
         }
         console.log(`[DB Worker] Received LOAD_FILE for '${fileName}'`);
         await duckDBService.registerFileBuffer(fileName, new Uint8Array(buffer));
-        await duckDBService.createTableFromFile(tableName, fileName);
+        await duckDBService.createTableFromFile(tableName, fileName, sheetName);
         result = true;
         break;
       }

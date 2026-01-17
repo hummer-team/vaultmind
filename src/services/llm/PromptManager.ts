@@ -1,4 +1,5 @@
 import { ecommercePrompts } from '../../prompts/ecommerce'; // Direct import for simplicity
+import { Attachment } from '../../types/workbench.types';
 
 // Define a more structured prompt template
 interface PromptTemplate {
@@ -33,24 +34,34 @@ export class PromptManager {
    * Constructs the full prompt for the LLM, including system message and tool selection guidance.
    * @param role The role of the user, to select the correct prompt set.
    * @param userInput The user's natural language query.
-   * @param tableSchema The schema of the table to be analyzed.
+   * @param tableSchema The schema of the table(s) to be analyzed.
+   * @param attachments The list of loaded file attachments for context.
    * @returns The fully constructed prompt string.
    */
-  // --- CRITICAL CHANGE: Remove availableTools from function signature ---
-  public getToolSelectionPrompt(role: string, userInput: string, tableSchema: any): string {
+  public getToolSelectionPrompt(role: string, userInput: string, tableSchema: string, attachments: Attachment[] = []): string {
     const prompts = promptSets[role.toLowerCase()];
     if (!prompts) {
       throw new Error(`Prompt set for role "${role}" not found.`);
     }
 
-    const schemaString = JSON.stringify(tableSchema, null, 2);
+    // Build a context string from attachments
+    let fileContext = '';
+    if (attachments.length > 0) {
+        const fileInfos = attachments.map(att => {
+            if (att.sheetName) {
+                return `table "${att.tableName}" contains data from sheet "${att.sheetName}" of the file "${att.file.name}"`;
+            }
+            return `table "${att.tableName}" contains data from the file "${att.file.name}"`;
+        });
+        fileContext = `The user has loaded the following data: ${fileInfos.join('; ')}.`;
+    }
 
     // 1. Combine the system prompt and the main tool selection template
-    let fullPrompt = `${prompts.system_prompt}\n\n${prompts.tool_selection_prompt_template}`;
+    let fullPrompt = `${prompts.system_prompt}\n\n${fileContext}\n\n${prompts.tool_selection_prompt_template}`;
 
     // 2. Replace placeholders in the template
     fullPrompt = fullPrompt.replace('{userInput}', userInput);
-    fullPrompt = fullPrompt.replace('{tableSchema}', schemaString);
+    fullPrompt = fullPrompt.replace('{tableSchema}', tableSchema);
 
     console.log("[PromptManager] Constructed Full Prompt:", fullPrompt); // For debugging
     return fullPrompt;

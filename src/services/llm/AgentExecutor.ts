@@ -1,20 +1,23 @@
 import { PromptManager } from './PromptManager';
 import { tools, toolSchemas, MissingColumnError, CannotAnswerError } from '../tools/DuckdbTools';
 import { LLMClient, LLMConfig } from './LLMClient';
+import { Attachment } from '../../types/workbench.types';
 import OpenAI from 'openai';
 
-export type ExecuteQueryFunc = (sql: string) => Promise<any>;
+export type ExecuteQueryFunc = (sql: string) => Promise<any[]>;
 
 export class AgentExecutor {
   private promptManager = new PromptManager();
   private llmClient: LLMClient;
   private executeQuery: ExecuteQueryFunc;
   private llmConfig: LLMConfig;
+  private attachments: Attachment[];
 
-  constructor(config: LLMConfig, executeQuery: ExecuteQueryFunc) {
+  constructor(config: LLMConfig, executeQuery: ExecuteQueryFunc, attachments: Attachment[] = []) {
     this.llmClient = new LLMClient(config);
     this.executeQuery = executeQuery;
     this.llmConfig = config;
+    this.attachments = attachments;
   }
 
   private async _getAllTableSchemas(): Promise<string> {
@@ -22,14 +25,12 @@ export class AgentExecutor {
       "SELECT table_name FROM information_schema.tables WHERE table_name LIKE 'main_table_%';"
     );
     
-    let tableNames: string[] = [];
-    if (tablesResult && Array.isArray(tablesResult.rows)) {
-      tableNames = tablesResult.rows.map((row: any[]) => row[0]);
-    }
+    const tableNames = (tablesResult || []).map((row: any) => row.table_name);
 
     console.log('[AgentExecutor] Fetched tables:', tableNames);
 
     if (tableNames.length === 0) {
+      // Fallback for single table scenario if info schema fails
       try {
         const schema = await this.executeQuery(`DESCRIBE main_table;`);
         const schemaString = schema
@@ -43,14 +44,16 @@ export class AgentExecutor {
 
     const schemaPromises = tableNames.map(async (tableName: string) => {
       try {
-        const schema = await this.executeQuery(`DESCRIBE "${tableName}";`);
-        if (schema && Array.isArray(schema.rows)) {
-            const schemaString = schema.rows
-              .map((col: any[]) => `  - ${col[0]} (${col[1]})`)
-              .join('\n');
-            return `Table: ${tableName}\nColumns:\n${schemaString}`;
-        }
-        return `// Could not parse schema for table: ${tableName}`;
+        const schemaResult = await this.executeQuery(`DESCRIBE "${tableName}";`);
+        const schemaString = schemaResult
+          .map((col: any) => `  - ${col.column_name} (${col.column_type})`)
+          .join('\n');
+        
+        // Find the corresponding attachment to get the sheet name
+        const attachment = this.attachments.find(att => att.tableName === tableName);
+        const sheetNameHint = attachment?.sheetName ? ` (from sheet: "${attachment.sheetName}")` : '';
+
+        return `Table: ${tableName}${sheetNameHint}\nColumns:\n${schemaString}`;
       } catch (error) {
         console.error(`Failed to get schema for table ${tableName}:`, error);
         return `// Failed to retrieve schema for table: ${tableName}`;
@@ -135,7 +138,8 @@ export class AgentExecutor {
       const userPromptTemplate = this.promptManager.getToolSelectionPrompt(
         role,
         userInput,
-        allTableSchemas
+        allTableSchemas,
+        this.attachments
       );
 
       let response: any;

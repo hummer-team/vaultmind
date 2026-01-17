@@ -90,26 +90,38 @@ export class DuckDBService {
     console.log(`[DuckDBService] File '${fileName}' registered successfully.`);
   }
 
-  public async createTableFromFile(tableName: string, fileName: string): Promise<void> {
+  public async createTableFromFile(tableName: string, fileName: string, sheetName?: string): Promise<void> {
     if (!this.db) throw new Error('DuckDB not initialized.');
     
     const fileExtension = fileName.split('.').pop()?.toLowerCase();
     let query: string;
 
+    // Escape identifiers to be safe
+    const safeTableName = `"${tableName.replace(/"/g, '""')}"`;
+    const safeFileName = `'${fileName.replace(/'/g, "''")}'`;
+
     if (fileExtension === 'csv') {
-      query = `CREATE OR REPLACE TABLE "${tableName}" AS SELECT * FROM read_csv('${fileName}');`;
-    } else if (fileExtension === 'xlsx') {
-      // --- CRITICAL CHANGE: Use read_excel ---
-      query = `CREATE OR REPLACE TABLE "${tableName}" AS SELECT * FROM read_xlsx('${fileName}');`;
-    } else {
+      query = `CREATE OR REPLACE TABLE ${safeTableName} AS SELECT * FROM read_csv_auto(${safeFileName});`;
+    } else if (fileExtension === 'xlsx' || fileExtension === 'xls') {
+      if (sheetName) {
+        const safeSheetName = `'${sheetName.replace(/'/g, "''")}'`;
+        query = `CREATE OR REPLACE TABLE ${safeTableName} AS SELECT * FROM read_xlsx(${safeFileName}, sheet=${safeSheetName});`;
+      } else {
+        // Default to reading the first sheet if no name is provided
+        query = `CREATE OR REPLACE TABLE ${safeTableName} AS SELECT * FROM read_xlsx(${safeFileName});`;
+      }
+    } else if (fileExtension === 'parquet') {
+        query = `CREATE OR REPLACE TABLE ${safeTableName} AS SELECT * FROM read_parquet(${safeFileName});`;
+    }
+    else {
       throw new Error(`Unsupported file type for table creation: ${fileExtension}`);
     }
 
-    console.log(`[DuckDBService] Creating table '${tableName}' with query: ${query}`);
+    console.log(`[DuckDBService] Creating table ${safeTableName} with query: ${query}`);
     const c = await this.db.connect();
     try {
       await c.query(query);
-      console.log(`[DuckDBService] Table '${tableName}' created successfully from file '${fileName}'.`);
+      console.log(`[DuckDBService] Table ${safeTableName} created successfully from file '${fileName}'.`);
     } finally {
       await c.close();
     }
@@ -150,7 +162,6 @@ export class DuckDBService {
   }
 
   public async getTableSchema(tableName: string): Promise<any> {
-    // This method now also returns the standardized format, which is fine.
     return this.executeQuery(`DESCRIBE "${tableName}";`);
   }
 }

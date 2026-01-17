@@ -88,7 +88,6 @@ export const useDuckDB = (iframeRef: React.RefObject<HTMLIFrameElement>) => {
 
     console.log('[useDuckDB] Sandbox ready. Building bundle with absolute paths...');
 
-    // Manually construct the URL to the predictably-named worker script
     const our_duckdb_worker_script_url = chrome.runtime.getURL('assets/duckdb.worker.js');
     console.log('[useDuckDB] Manually constructed worker URL:', our_duckdb_worker_script_url);
 
@@ -122,7 +121,7 @@ export const useDuckDB = (iframeRef: React.RefObject<HTMLIFrameElement>) => {
   );
 
   const executeQuery = useCallback(
-    (sql: string): Promise<any[]> => { // Assuming executeQuery returns an array of objects
+    (sql: string): Promise<any[]> => { // The return type is now consistently an array of objects
       if (!isDBReady) return Promise.reject(new Error('DuckDB is not ready.'));
       return sendMessageToSandbox({ type: 'DUCKDB_EXECUTE_QUERY', sql });
     },

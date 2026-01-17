@@ -3,6 +3,7 @@ import { theme, Spin, App, Typography, Tag, Space } from 'antd';
 import { v4 as uuidv4 } from 'uuid';
 import ChatPanel from './components/ChatPanel';
 import ResultsDisplay from './components/ResultsDisplay';
+import { SheetSelector } from './components/SheetSelector';
 import { PromptManager } from '../../services/llm/PromptManager';
 import { AgentExecutor } from '../../services/llm/AgentExecutor';
 import { LLMConfig } from '../../services/llm/LLMClient';
@@ -59,7 +60,7 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const { initializeDuckDB, executeQuery, isDBReady, dropTable } = useDuckDB(iframeRef);
-  const { loadFileInDuckDB, isSandboxReady } = useFileParsing(iframeRef);
+  const { loadFileInDuckDB, loadSheetsInDuckDB, getSheetNamesFromExcel, isSandboxReady } = useFileParsing(iframeRef);
 
   const [uiState, setUiState] = useState<WorkbenchState>('initializing');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -67,6 +68,11 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [analysisHistory, setAnalysisHistory] = useState<AnalysisRecord[]>([]);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  
+  // State for multi-sheet handling
+  const [sheetsToSelect, setSheetsToSelect] = useState<string[] | null>(null);
+  const [fileToLoad, setFileToLoad] = useState<File | null>(null);
+
   const [llmConfig] = useState<LLMConfig>({
     provider: import.meta.env.VITE_LLM_PROVIDER as any,
     apiKey: import.meta.env.VITE_LLM_API_KEY as string,
@@ -77,8 +83,9 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
 
   const agentExecutor = useMemo(() => {
     if (!isDBReady || !executeQuery) return null;
-    return new AgentExecutor(llmConfig, executeQuery);
-  }, [llmConfig, executeQuery, isDBReady]);
+    // Pass the attachments to the executor so it knows the table-to-sheet mapping
+    return new AgentExecutor(llmConfig, executeQuery, attachments);
+  }, [llmConfig, executeQuery, isDBReady, attachments]);
 
   useEffect(() => {
     if (isSandboxReady) {
@@ -91,11 +98,15 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
 
   useEffect(() => {
     if (isDBReady && isSandboxReady) {
-      setUiState(attachments.length > 0 ? 'fileLoaded' : 'waitingForFile');
+      if (sheetsToSelect) {
+        setUiState('selectingSheet');
+      } else {
+        setUiState(attachments.length > 0 ? 'fileLoaded' : 'waitingForFile');
+      }
     } else {
       setUiState('initializing');
     }
-  }, [isDBReady, isSandboxReady, attachments.length]);
+  }, [isDBReady, isSandboxReady, attachments.length, sheetsToSelect]);
 
   useEffect(() => {
     const content = contentRef.current;
@@ -124,35 +135,68 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
       setChatError(`You can only upload a maximum of ${MAX_FILES} file(s).`);
       return false;
     }
-
     setChatError(null);
-    const newAttachment: Attachment = {
-      id: uuidv4(),
-      file,
-      tableName: `main_table_${attachments.length + 1}`,
-      status: 'uploading',
-    };
-    setAttachments((prev) => [...prev, newAttachment]);
     setUiState('parsing');
 
     try {
+      // Check for multiple sheets only for excel files
+      const fileExtension = file.name.split('.').pop()?.toLowerCase();
+      if (fileExtension === 'xlsx' || fileExtension === 'xls') {
+        const sheetNames = await getSheetNamesFromExcel(file);
+        if (sheetNames.length > 1) {
+          setFileToLoad(file);
+          setSheetsToSelect(sheetNames);
+          setUiState('selectingSheet');
+          return false; // Stop standard flow
+        }
+      }
+
+      // Standard flow for single-sheet files (or non-excel files)
+      const newAttachment: Attachment = {
+        id: uuidv4(),
+        file,
+        tableName: `main_table_${attachments.length + 1}`,
+        status: 'uploading',
+      };
+      setAttachments((prev) => [...prev, newAttachment]);
+      
       await loadFileInDuckDB(file, newAttachment.tableName);
+
       setAttachments((prev) =>
         prev.map((att) => (att.id === newAttachment.id ? { ...att, status: 'success' } : att))
       );
       const loadedSuggestions = promptManager.getSuggestions('ecommerce');
       setSuggestions(loadedSuggestions);
       setUiState('fileLoaded');
+
     } catch (error: any) {
       console.error(`[Workbench] Error during file upload process:`, error);
-      setAttachments((prev) =>
-        prev.map((att) =>
-          att.id === newAttachment.id ? { ...att, status: 'error', error: error.message } : att
-        )
-      );
       setUiState('error');
+      setChatError(`Failed to load file: ${error.message}`);
     }
     return false;
+  };
+
+  const handleLoadSheets = async (selectedSheets: string[]) => {
+    if (!fileToLoad) return;
+
+    setUiState('parsing');
+    setSheetsToSelect(null);
+
+    try {
+      const loadedAttachments = await loadSheetsInDuckDB(fileToLoad, selectedSheets, attachments.length);
+      setAttachments(prev => [...prev, ...loadedAttachments]);
+      
+      const loadedSuggestions = promptManager.getSuggestions('ecommerce');
+      setSuggestions(loadedSuggestions);
+      setUiState('fileLoaded');
+    } catch (error: any) {
+      console.error(`[Workbench] Error loading sheets:`, error);
+      setUiState('error');
+      setChatError(`Failed to load sheets: ${error.message}`);
+    } finally {
+      setFileToLoad(null);
+    }
   };
 
   const handleDeleteAttachment = async (attachmentId: string) => {
@@ -251,16 +295,31 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
 
   const getLoadingTip = () => {
     if (uiState === 'initializing') return 'Initializing data engine...';
-    if (uiState === 'parsing') return 'Parsing file...';
+    if (uiState === 'parsing') return 'Parsing file(s)...';
     return '';
   };
 
   const isSpinning = uiState === 'initializing' || uiState === 'parsing';
 
   const renderAnalysisView = () => {
-    if (analysisHistory.length === 0) {
+    if (uiState === 'selectingSheet' && sheetsToSelect) {
+      return (
+        <SheetSelector
+          sheets={sheetsToSelect}
+          onLoad={handleLoadSheets}
+          onCancel={() => {
+            setSheetsToSelect(null);
+            setFileToLoad(null);
+            setUiState('waitingForFile');
+          }}
+        />
+      );
+    }
+
+    if (analysisHistory.length === 0 && attachments.length === 0) {
       return <InitialWelcomeView />;
     }
+
     return (
       <div>
         {analysisHistory.map((record) => (
