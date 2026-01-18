@@ -19,6 +19,7 @@ import type { UploadProps } from 'antd';
 import { UserOutlined, PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import { settingsService, LLMProviderConfig } from '../../services/SettingsService';
 import { useUserStore } from '../../status/AppStatusManager.ts';
+import { personaRegistry } from '../../config/personas';
 
 const { Title } = Typography;
 
@@ -41,7 +42,10 @@ const ProfilePage: React.FC = () => {
 
   useEffect(() => {
     if (userProfile) {
-      profileForm.setFieldsValue(userProfile);
+      profileForm.setFieldsValue({
+        ...userProfile,
+        skills: userProfile.skills?.[0] || undefined
+      });
     }
   }, [userProfile, profileForm]);
 
@@ -61,9 +65,17 @@ const ProfilePage: React.FC = () => {
   const handleProfileUpdate = async (values: any) => {
     if (!userProfile) return;
     try {
-      const updatedProfile = { ...userProfile, ...values };
+      // Convert single skill selection to array format
+      const updatedProfile = {
+        ...userProfile,
+        ...values,
+        skills: values.skills ? [values.skills] : []
+      };
       await settingsService.saveUserProfile(updatedProfile);
-      // No need to call setUserProfile here, as it's already updated optimistically
+
+      // ✅ keep global userProfile in sync so Workbench / ChatPanel see latest role
+      setUserProfile(updatedProfile);
+
       message.success('Profile updated successfully!');
     } catch (error) {
       message.error('Failed to update profile.');
@@ -133,7 +145,7 @@ const ProfilePage: React.FC = () => {
       if (isJpgOrPng && isLt200K) {
         getBase64(file, (url) => {
           const updatedProfile = { ...userProfile, avatar: url };
-          setUserProfile(updatedProfile); // This updates the global state immediately
+          setUserProfile(updatedProfile);
         });
       }
       return false;
@@ -141,17 +153,19 @@ const ProfilePage: React.FC = () => {
   };
 
   const columns = [
-    { title: 'URL', dataIndex: 'url', key: 'url' },
+    { title: 'URL', dataIndex: 'url', key: 'url', ellipsis: true },
     {
       title: 'API Key',
       dataIndex: 'apiKey',
       key: 'apiKey',
+      ellipsis: true,
       render: (text: string) => `sk-**********...${text.slice(-4)}`,
     },
     {
       title: 'Status',
       dataIndex: 'isEnabled',
       key: 'isEnabled',
+      width: 100, // slightly wider but still compact
       render: (isEnabled: boolean, record: LLMProviderConfig) => (
         <Switch checked={isEnabled} onChange={(checked) => handleLlmConfigToggle(record.id, checked)} />
       ),
@@ -159,28 +173,74 @@ const ProfilePage: React.FC = () => {
     {
       title: 'Action',
       key: 'action',
+      width: 170, // compact but enough for两个 link 按钮
       render: (_: any, record: LLMProviderConfig) => (
-        <Space size="middle">
-          <Button icon={<EditOutlined />} onClick={() => handleShowModal(record)}>Edit</Button>
+        <Space size="small">
+          <Button
+            type="link"
+            size="small"
+            icon={<EditOutlined />}
+            onClick={() => handleShowModal(record)}
+          >
+            Edit
+          </Button>
           <Popconfirm
             title="Are you sure you want to delete this config?"
             onConfirm={() => handleLlmConfigDelete(record.id)}
             okText="Yes"
             cancelText="No"
           >
-            <Button icon={<DeleteOutlined />} danger>Delete</Button>
+            <Button
+              type="link"
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+            >
+              Delete
+            </Button>
           </Popconfirm>
         </Space>
       ),
     },
   ];
 
+  // Generate persona options with expertise description
+  const personaOptions = Object.values(personaRegistry).map(persona => ({
+    value: persona.id,
+    label: (
+      <div>
+        <span>{persona.icon} {persona.displayName}</span>
+        <div style={{ fontSize: '12px', color: 'rgba(255, 255, 255, 0.45)', marginTop: '2px' }}>
+          Expertise: {persona.expertise.join('、')}
+        </div>
+      </div>
+    ),
+  }));
+
   return (
-    <div style={{ padding: '24px', maxWidth: '1000px', margin: '0 auto', background: 'transparent' }}>
+    <div
+      style={{
+        background: 'rgba(24, 24, 28, 0.0)', // 或者直接去掉 background，让它跟 Drawer 背景一致
+        minHeight: '100vh',
+        padding: '24px',
+        maxWidth: '1000px',
+        margin: '0 auto',
+        borderRadius: 16,
+        border: '1px solid rgba(255, 255, 255, 0.08)',
+      }}
+    >
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
         <Card>
           {userProfile && (
-            <Form form={profileForm} layout="vertical" onFinish={handleProfileUpdate} initialValues={userProfile}>
+            <Form
+              form={profileForm}
+              layout="vertical"
+              onFinish={handleProfileUpdate}
+              initialValues={{
+                ...userProfile,
+                skills: userProfile.skills?.[0] || undefined
+              }}
+            >
               <Form.Item label="Avatar" name="avatar">
                 <Upload {...uploadProps}>
                   <Avatar size={64} src={userProfile.avatar} icon={<UserOutlined />} style={{ cursor: 'pointer' }} />
@@ -188,8 +248,16 @@ const ProfilePage: React.FC = () => {
               </Form.Item>
               <Form.Item label="Nickname" name="nickname"><Input /></Form.Item>
               <Form.Item label="Occupation" name="occupation"><Input /></Form.Item>
-              <Form.Item label="Skills" name="skills">
-                <Select mode="tags" placeholder="Add skills and press Enter" />
+              <Form.Item
+                label="Role"
+                name="skills"
+                tooltip="Select your primary role for personalized analysis suggestions"
+              >
+                <Select
+                  placeholder="Select your role"
+                  options={personaOptions}
+                  optionLabelProp="label"
+                />
               </Form.Item>
               <Form.Item>
                 <Button type="primary" htmlType="submit">Update Profile</Button>
@@ -203,7 +271,12 @@ const ProfilePage: React.FC = () => {
           <Button type="primary" icon={<PlusOutlined />} onClick={() => handleShowModal()} style={{ marginBottom: 16 }}>
             Add New Config
           </Button>
-          <Table columns={columns} dataSource={llmConfigs} rowKey="id" />
+          <Table
+            columns={columns}
+            dataSource={llmConfigs}
+            rowKey="id"
+            scroll={{ x: 800 }}
+          />
         </Card>
       </Space>
 

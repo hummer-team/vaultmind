@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, Suspense } from 'react';
 import ReactDOM from 'react-dom/client';
-import { App as AntdApp, ConfigProvider, theme, MenuProps } from 'antd';
+import { App as AntdApp, ConfigProvider, theme, MenuProps, Spin } from 'antd';
 import AppLayout from './components/layout/AppLayout';
-import Workbench from './pages/workbench';
+// import Workbench from './pages/workbench';
+const Workbench = React.lazy(() => import('./pages/workbench')); // 懒加载 Workbench
 import SubscriptionPage from './pages/subscription/SubscriptionPage';
 import 'antd/dist/reset.css';
-import SessionListPage   from "./pages/session/SessionListPage.tsx";
+import SessionListPage from "./pages/session/SessionListPage.tsx";
 import TemplateListPage from "./pages/asset-center/TemplateListPage.tsx";
 import FeedbackDrawer from './pages/feedback/FeedbackDrawer.tsx';
 import ProfilePage from "./pages/settings/ProfilePage.tsx";
@@ -43,11 +44,21 @@ const App = () => {
 
   const renderCurrentPage = () => {
     switch (currentPage) {
-      case 'Workbench': // Changed from 'Workbench' to '1' to match menu item key
-        return <Workbench 
-          isFeedbackDrawerOpen={isFeedbackDrawerOpen} 
-          setIsFeedbackDrawerOpen={setIsFeedbackDrawerOpen} 
-        />;
+      case 'Workbench':
+        return (
+          <Suspense
+            fallback={
+              <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Spin tip="Loading Vaultmind..." />
+              </div>
+            }
+          >
+            <Workbench
+              isFeedbackDrawerOpen={isFeedbackDrawerOpen}
+              setIsFeedbackDrawerOpen={setIsFeedbackDrawerOpen}
+            />
+          </Suspense>
+        );
       case 'SessionHistory':
         return <SessionListPage />;
       case 'TemplateList':
@@ -55,12 +66,22 @@ const App = () => {
       case 'Subscription':
         return <SubscriptionPage />;
       case 'Settings':
-        return <ProfilePage/>
+        return <ProfilePage />
       default:
-        return <Workbench 
-          isFeedbackDrawerOpen={isFeedbackDrawerOpen} 
-          setIsFeedbackDrawerOpen={setIsFeedbackDrawerOpen} 
-        />;
+        return (
+          <Suspense
+            fallback={
+              <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Spin tip="Loading Vaultmind..." />
+              </div>
+            }
+          >
+            <Workbench
+              isFeedbackDrawerOpen={isFeedbackDrawerOpen}
+              setIsFeedbackDrawerOpen={setIsFeedbackDrawerOpen}
+            />
+          </Suspense>
+        );
     }
   };
 
@@ -73,9 +94,9 @@ const App = () => {
         >
           {renderCurrentPage()}
         </AppLayout>
-        <FeedbackDrawer 
-          open={isFeedbackDrawerOpen} 
-          onClose={() => setIsFeedbackDrawerOpen(false)} 
+        <FeedbackDrawer
+          open={isFeedbackDrawerOpen}
+          onClose={() => setIsFeedbackDrawerOpen(false)}
         />
       </AntdApp>
     </ConfigProvider>

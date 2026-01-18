@@ -82,7 +82,7 @@
   - lint：`bun run lint`。
 - 示例：在 macOS / zsh 下启动开发（示例）
   - 在 shell 中先设置环境变量（示例）：`export VITE_LLM_MOCK=true`；`export VITE_LLM_API_KEY="<your-key>"`  
-  - 启动：`bun run dev`，打开 `http://localhost:5173`。
+
 - 备注
   - 若环境中同时存在 node/npm，Bun 能兼容大多数 package.json 脚本，但注意原生模块或特定 bundler 插件的兼容性（遇到问题时参考 Bun 官方文档或切换到 npm/yarn 进行回退测试）。
 
@@ -196,7 +196,6 @@ LLM 模型约束与 Skills 声明
      - export VITE_LLM_MOCK=true
      - export VITE_LLM_API_KEY="<your-key>"
      - npm run dev
-  2. 打开 http://localhost:5173，进入 Workbench，上传示例 CSV，输入示例建议并提交。
 
 - 新增 Prompt（概要）
   - 文件：`src/prompts/finance.ts`
@@ -218,8 +217,3 @@ LLM 模型约束与 Skills 声明
 - src/pages/workbench/index.tsx
 - src/pages/workbench/components/ChatPanel.tsx
 - src/prompts/ecommerce.ts
-
-十一、下一步建议（可选）
-- 把 `useLLMAgent` 填充为对外稳定的 API：start/stop/streaming 支持、事件回调、类型定义。
-- 为 AgentExecutor 添加更完善的工具注册机制（可热插拔工具插件）。
-- 增加单元/集成测试：模拟 LLMClient（mockEnabled）与 DuckDB worker（stub executeQuery）做端到端测试。

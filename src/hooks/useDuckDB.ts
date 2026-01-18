@@ -51,14 +51,14 @@ export const useDuckDB = (iframeRef: React.RefObject<HTMLIFrameElement>) => {
         }
       }
     };
-    
+
     window.addEventListener('message', handleMessage);
 
     return () => {
       window.removeEventListener('message', handleMessage);
     };
   }, [iframeRef]);
-  
+
   const sendMessageToSandbox = useCallback(
     <T,>(message: Omit<AppMessage, 'id'>, transferables?: Transferable[]): Promise<T> => {
       return new Promise((resolve, reject) => {
@@ -123,7 +123,7 @@ export const useDuckDB = (iframeRef: React.RefObject<HTMLIFrameElement>) => {
       }
 
       console.log('[useDuckDB] Sandbox ready. Getting DuckDB resources...');
-      const DUCKDB_RESOURCES = getDuckDBResources();
+      const DUCKDB_RESOURCES = await getDuckDBResources(); // <-- await
 
       const extensionOrigin = chrome.runtime.getURL('/');
       console.log('[useDuckDB] Calculated extensionOrigin:', extensionOrigin);

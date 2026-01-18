@@ -3,6 +3,7 @@ import { tools, toolSchemas, MissingColumnError, CannotAnswerError } from '../to
 import { LLMClient, LLMConfig } from './LLMClient';
 import { Attachment } from '../../types/workbench.types';
 import OpenAI from 'openai';
+import { getPersonaById } from '../../config/personas';
 
 // Define the expected return type for executeQuery
 export type QueryResult = { data: any[]; schema: any[] };
@@ -27,7 +28,7 @@ export class AgentExecutor {
     const tablesResult: QueryResult = await this.executeQuery(
       "SELECT table_name FROM information_schema.tables WHERE table_name LIKE 'main_table_%';"
     );
-    
+
     let tableNames: string[] = [];
     // Access data from tablesResult.data
     if (tablesResult && Array.isArray(tablesResult.data)) {
@@ -61,7 +62,7 @@ export class AgentExecutor {
         const schemaString = schemaRows
           .map((col: any) => `  - ${col.column_name || col.column_name} (${col.column_type || col.column_type})`) // Use column_name and column_type consistently
           .join('\n');
-        
+
         const attachment = this.attachments.find(att => att.tableName === tableName);
         const sheetNameHint = attachment?.sheetName ? ` (from sheet: "${attachment.sheetName}")` : '';
 
@@ -110,7 +111,7 @@ export class AgentExecutor {
         llmReason = parsedContent.thought || parsedContent.action?.args?.explanation || '';
       } catch (e) {
         console.error('[AgentExecutor] Failed to parse message.content as JSON and no regex match:'
-            , e, 'Raw content:', message.content, " user input: ", userInput);
+          , e, 'Raw content:', message.content, " user input: ", userInput);
         // JSON parsing failed, try regex as a fallback
         const thoughtRegex = /"thought":\s*"(.*?)(?<!\\)"/s;
         const explanationRegex = /"explanation":\s*"(.*?)(?<!\\)"/s;
@@ -129,7 +130,20 @@ export class AgentExecutor {
     return 'An unknown error occurred while processing the AI response.';
   }
 
-  public async execute(userInput: string, signal?: AbortSignal): Promise<{ tool: string; params: any; result: any; schema: any[]; thought: string; cancelled?: boolean }> {
+  public async execute(
+    userInput: string,
+    signal?: AbortSignal,
+    options?: { persona?: string }
+  ): Promise<{
+    tool: string;
+    params: any;
+    result: any;
+    schema: any[];
+    thought: string;
+    cancelled?: boolean;
+    llmDurationMs?: number;
+    queryDurationMs?: number;
+  }> {
     try {
       const allTableSchemas = await this._getAllTableSchemas();
       if (!allTableSchemas) {
@@ -137,14 +151,21 @@ export class AgentExecutor {
       }
 
       console.log('[AgentExecutor] Fetched all table schemas:\n', allTableSchemas);
+      // Get persona information
+      const personaId = options?.persona || 'business_user';
+      const persona = getPersonaById(personaId);
 
       const role = 'ecommerce';
       const userPromptTemplate = this.promptManager.getToolSelectionPrompt(
         role,
         userInput,
         allTableSchemas,
-        this.attachments
+        this.attachments,
+        persona
       );
+
+      // --------- 1) Measure LLM decision duration ----------
+      const llmStart = performance.now();
 
       let response: any;
       if (this.llmConfig.mockEnabled) {
@@ -193,6 +214,10 @@ export class AgentExecutor {
         };
         response = await this.llmClient.chatCompletions(params, signal);
       }
+
+      const llmEnd = performance.now();
+      const llmDurationMs = llmEnd - llmStart;
+      // ---------------------------------------
 
       const message = response.choices[0].message;
       // Normalize function call retrieval to support different provider shapes
@@ -254,10 +279,21 @@ export class AgentExecutor {
           throw new Error(`LLM selected an unknown tool: ${toolName}`);
         }
 
+        // --------- 2) Measure query execution duration (only for sql_query_tool) ----------
+        let queryDurationMs: number | undefined = undefined;
+        let toolResult: QueryResult;
+
+        if (toolName === 'sql_query_tool') {
+          const queryStart = performance.now();
+          toolResult = await toolFunction(this.executeQuery, args);
+          const queryEnd = performance.now();
+          queryDurationMs = queryEnd - queryStart;
+        } else {
+          // Other tools (e.g., cannot_answer_tool) do not measure query duration
+          toolResult = await toolFunction(this.executeQuery, args);
+        }
+
         // toolFunction now returns { data, schema }
-        const toolResult: QueryResult = await toolFunction(this.executeQuery, args);
-        
-        // Sanitize only the data part, keep schema as is
         const sanitizedData = this._sanitizeBigInts(toolResult.data);
 
         return {
@@ -266,6 +302,8 @@ export class AgentExecutor {
           result: sanitizedData, // Renamed from 'result' to 'data' for clarity, but keeping 'result' for now to minimize changes
           schema: toolResult.schema, // Pass the schema through
           thought: thought,
+          llmDurationMs,
+          queryDurationMs,
         };
       } else {
         throw new Error(`Unsupported tool type: ${toolCall.type}`);

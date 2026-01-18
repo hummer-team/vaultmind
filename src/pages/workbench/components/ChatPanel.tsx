@@ -1,9 +1,11 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect } from 'react';
 import { Input, Button, Form, Tag, Space, Upload, FloatButton, Typography, Spin, Tooltip } from 'antd';
-import { PaperClipOutlined, DownOutlined, CloseCircleFilled, StopOutlined, FileExcelOutlined } from '@ant-design/icons';
+import { PaperClipOutlined, DownOutlined, CloseCircleFilled, StopOutlined, FileExcelOutlined, UserOutlined } from '@ant-design/icons';
 import type { UploadProps } from 'antd';
 import { Attachment } from '../../../types/workbench.types';
 import './ChatPanel.css'; // Import a CSS file for animations
+import { getPersonaById } from '../../../config/personas';
+import { useUserStore } from '../../../status/AppStatusManager';
 
 interface ChatPanelProps {
   onSendMessage: (message: string) => void;
@@ -18,6 +20,13 @@ interface ChatPanelProps {
   setError: (error: string | null) => void;
   showScrollToBottom: boolean;
   onScrollToBottom: () => void;
+  showPersonaPrompt?: boolean;
+  onPersonaSetupClick?: () => void;
+  onPersonaPromptDismiss?: () => void;
+  onPersonaBadgeClick?: () => void;
+  // 新增：用于外部控制输入框内容
+  initialMessage?: string;
+  setInitialMessage?: (msg: string) => void;
 }
 
 interface GroupedAttachment {
@@ -42,8 +51,25 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
   setError,
   showScrollToBottom,
   onScrollToBottom,
+  onPersonaBadgeClick,
+  initialMessage,
+  setInitialMessage,
 }) => {
   const [form] = Form.useForm();
+  const { userProfile } = useUserStore();
+
+  // 当 initialMessage 变化时，同步到表单输入框
+  useEffect(() => {
+    if (initialMessage !== undefined) {
+      form.setFieldsValue({ message: initialMessage });
+    }
+  }, [initialMessage, form]);
+
+  // 当用户手动输入时，如果有 setInitialMessage，则更新上层状态，保持双向同步（可选）
+  const handleChangeMessage = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    if (error) setError(null);
+    if (setInitialMessage) setInitialMessage(e.target.value);
+  };
 
   const groupedAttachments = useMemo((): GroupedAttachment[] => {
     const groups: Map<string, GroupedAttachment> = new Map();
@@ -82,6 +108,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     setError(null);
     onSendMessage(values.message.trim());
     form.resetFields();
+    if (setInitialMessage) setInitialMessage('');
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -106,6 +133,11 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     '3. Press Control+Enter to submit.',
   ].join('\n');
   const placeholderText = isInitializing ? 'Vaultmind 引擎初始化中...' : defaultPlaceholder;
+
+  // Check if user has set a persona (skills[0] exists)
+  const hasPersona = !!(userProfile?.skills?.[0]);
+  const currentPersonaId = userProfile?.skills?.[0] || 'business_user';
+  const currentPersona = getPersonaById(currentPersonaId);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', position: 'relative' }}>
@@ -176,7 +208,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
               disabled={isAnalyzing || isInitializing}
               style={{ height: 120, resize: 'none', paddingBottom: '40px', paddingRight: '40px' }}
               onKeyDown={handleKeyDown}
-              onChange={() => error && setError(null)}
+              onChange={handleChangeMessage}
             />
           </Form.Item>
           {/* Transparent overlay during initialization: blocks input but keeps UI visible */}
@@ -201,6 +233,31 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
             </div>
           )}
           <div style={{ position: 'absolute', bottom: '8px', left: '8px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+            {/* Enhanced Persona Badge */}
+            <Tooltip
+              title={
+                hasPersona
+                  ? `${currentPersona.displayName} - Expertise: ${currentPersona.expertise.join(', ')}`
+                  : '👋 Set your role to get precise analysis suggestions'
+              }
+              placement="top"
+            >
+              <Button
+                icon={<UserOutlined />}
+                onClick={onPersonaBadgeClick}
+                className={!hasPersona ? 'persona-button-pulse' : ''}
+                style={{
+                  padding: '4px 15px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  border: !hasPersona ? '2px solid #1890ff' : undefined,
+                  boxShadow: !hasPersona ? '0 0 8px rgba(24, 144, 255, 0.5)' : undefined,
+                }}
+              >
+                {hasPersona && <span style={{ marginLeft: 4 }}>{currentPersona.displayName}</span>}
+              </Button>
+            </Tooltip>
             <Upload {...uploadProps}>
               <Button icon={<PaperClipOutlined />} disabled={isAnalyzing} />
             </Upload>

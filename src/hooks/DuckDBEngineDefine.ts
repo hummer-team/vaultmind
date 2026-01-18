@@ -1,16 +1,26 @@
 // This file centralizes the definitions for DuckDB engine resources.
 
-// 1. Import resource URLs as relative paths
-import duckdb_wasm from '@duckdb/duckdb-wasm/dist/duckdb-mvp.wasm?url';
-import duckdb_worker_mvp from '@duckdb/duckdb-wasm/dist/duckdb-browser-mvp.worker.js?url';
-import duckdb_wasm_eh from '@duckdb/duckdb-wasm/dist/duckdb-eh.wasm?url';
-import duckdb_worker_eh from '@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js?url';
-import duckdb_pthread_worker_from_url from '@duckdb/duckdb-wasm/dist/duckdb-browser-coi.pthread.worker.js?url';
-import duckdb_pthread_worker_content from '@duckdb/duckdb-wasm/dist/duckdb-browser-coi.pthread.worker.js?raw';
+// NOTE: avoid top-level imports of heavy duckdb-wasm files to reduce initial bundle size.
+// They will be dynamically imported when DuckDB is actually initialized.
 
-// 2. Define and export the DUCKDB_RESOURCES constant
-export const getDuckDBResources = () => {
-  // The worker script URL needs to be resolved at runtime by the extension.
+export const getDuckDBResources = async () => {
+  // Dynamic import to split bundle and delay loading heavy assets
+  const [
+    duckdb_wasm,
+    duckdb_worker_mvp,
+    duckdb_wasm_eh,
+    duckdb_worker_eh,
+    duckdb_pthread_worker_from_url,
+    duckdb_pthread_worker_content,
+  ] = await Promise.all([
+    import('@duckdb/duckdb-wasm/dist/duckdb-mvp.wasm?url').then(m => m.default),
+    import('@duckdb/duckdb-wasm/dist/duckdb-browser-mvp.worker.js?url').then(m => m.default),
+    import('@duckdb/duckdb-wasm/dist/duckdb-eh.wasm?url').then(m => m.default),
+    import('@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js?url').then(m => m.default),
+    import('@duckdb/duckdb-wasm/dist/duckdb-browser-coi.pthread.worker.js?url').then(m => m.default),
+    import('@duckdb/duckdb-wasm/dist/duckdb-browser-coi.pthread.worker.js?raw').then(m => m.default),
+  ]);
+
   const our_duckdb_worker_script_url = chrome.runtime.getURL('assets/duckdb.worker.js');
 
   return {

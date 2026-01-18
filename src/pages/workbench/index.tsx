@@ -1,16 +1,21 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { theme, Spin, App, Typography, Tag, Space } from 'antd';
+import { theme, Spin, App, Typography, Tag, Space, Drawer } from 'antd';
 import { v4 as uuidv4 } from 'uuid';
 import ChatPanel from './components/ChatPanel';
 import ResultsDisplay from './components/ResultsDisplay';
 import { SheetSelector } from './components/SheetSelector';
-import { PromptManager } from '../../services/llm/PromptManager';
 import { AgentExecutor } from '../../services/llm/AgentExecutor';
 import { LLMConfig } from '../../services/llm/LLMClient';
 import Sandbox from '../../components/layout/Sandbox';
 import { useDuckDB } from '../../hooks/useDuckDB';
 import { useFileParsing } from '../../hooks/useFileParsing';
 import { WorkbenchState, Attachment } from '../../types/workbench.types';
+import { settingsService } from '../../services/SettingsService';
+import { inferPersonaFromInput } from '../../utils/personaInference';
+import { getPersonaById } from '../../config/personas';
+import ProfilePage from "../settings/ProfilePage.tsx";
+import { getPersonaSuggestions } from '../../config/personaSuggestions';
+import { useUserStore } from '../../status/AppStatusManager.ts';
 
 // Configuration
 const MAX_FILES = import.meta.env.VITE_LLM_PROVIDER as number || 1; // Default to 1, can be increased later
@@ -22,14 +27,14 @@ interface AnalysisRecord {
   data: any[] | { error: string } | null; // Changed from 'result' to 'data' and explicitly typed as array of any, now includes error object
   schema: any[] | null; // Added schema to the record
   status: 'analyzing' | 'resultsReady';
+  llmDurationMs?: number;    // <-- 新增：LLM 调用耗时（毫秒）
+  queryDurationMs?: number;  // <-- 新增：数据查询耗时（毫秒）
 }
 
 interface WorkbenchProps {
   isFeedbackDrawerOpen: boolean;
   setIsFeedbackDrawerOpen: (isOpen: boolean) => void;
 }
-
-const promptManager = new PromptManager();
 
 const tagStyle: React.CSSProperties = {
   background: 'rgba(255, 255, 255, 0.08)',
@@ -69,16 +74,40 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [analysisHistory, setAnalysisHistory] = useState<AnalysisRecord[]>([]);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
-  
+  const [profileDrawerVisible, setProfileDrawerVisible] = useState(false);
+
+  // 新增：当前输入框内容，用于“编辑”时回填
+  const [currentInput, setCurrentInput] = useState<string>('');
+
+  const { userProfile } = useUserStore();
+
+  const handlePersonaBadgeClick = () => {
+    setProfileDrawerVisible(true);
+  };
+
+  const handleProfileDrawerClose = () => {
+    setProfileDrawerVisible(false);
+    // Recheck if persona has been set
+    if (settingsService.hasSetPersona()) {
+      const personaId = settingsService.getUserPersona();
+      const personaSuggestions = getPersonaSuggestions(personaId || 'business_user');
+      setSuggestions(personaSuggestions);
+    }
+  };
+
   // Initialize suggestions on component mount so users see tips immediately
   useEffect(() => {
     try {
-      const initial = promptManager.getSuggestions('ecommerce');
+      // Get persona from user profile skills (first skill) or fallback to business_user
+      const profilePersonaId = userProfile?.skills?.[0];
+      const personaId = profilePersonaId || 'business_user';
+
+      const initial = getPersonaSuggestions(personaId);
       if (initial && initial.length > 0) setSuggestions(initial);
     } catch (e) {
       console.warn('[Workbench] Failed to load initial suggestions:', e);
     }
-  }, []);
+  }, [userProfile]);
 
   // State for multi-sheet handling
   const [sheetsToSelect, setSheetsToSelect] = useState<string[] | null>(null);
@@ -170,13 +199,16 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
         status: 'uploading',
       };
       setAttachments((prev) => [...prev, newAttachment]);
-      
+
       await loadFileInDuckDB(file, newAttachment.tableName);
 
       setAttachments((prev) =>
         prev.map((att) => (att.id === newAttachment.id ? { ...att, status: 'success' } : att))
       );
-      const loadedSuggestions = promptManager.getSuggestions('ecommerce');
+      // Load persona-specific suggestions
+      const profilePersonaId = userProfile?.skills?.[0];
+      const personaId = profilePersonaId || 'business_user';
+      const loadedSuggestions = getPersonaSuggestions(personaId);
       setSuggestions(loadedSuggestions);
       setUiState('fileLoaded');
 
@@ -197,8 +229,11 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
     try {
       const loadedAttachments = await loadSheetsInDuckDB(fileToLoad, selectedSheets, attachments.length);
       setAttachments(prev => [...prev, ...loadedAttachments]);
-      
-      const loadedSuggestions = promptManager.getSuggestions('ecommerce');
+
+      // Load persona-specific suggestions
+      const profilePersonaId = userProfile?.skills?.[0];
+      const personaId = profilePersonaId || 'business_user';
+      const loadedSuggestions = getPersonaSuggestions(personaId);
       setSuggestions(loadedSuggestions);
       setUiState('fileLoaded');
     } catch (error: any) {
@@ -213,14 +248,14 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
   const handleDeleteAttachment = async (attachmentId: string) => {
     const attachmentToDelete = attachments.find((att) => att.id === attachmentId);
     if (!attachmentToDelete) return;
-  
+
     const remainingAttachments = attachments.filter((att) => att.id !== attachmentId);
     setAttachments(remainingAttachments);
-  
+
     if (remainingAttachments.length === 0 && analysisHistory.length === 0) {
       setUiState('waitingForFile');
     }
-  
+
     if (attachmentToDelete.status === 'success') {
       try {
         await dropTable(attachmentToDelete.tableName);
@@ -247,12 +282,47 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
 
     const newRecordId = `record-${Date.now()}`;
     // Initialize data and schema as null
-    const newRecord: AnalysisRecord = { id: newRecordId, query, thinkingSteps: null, data: null, schema: null, status: 'analyzing' };
+    const newRecord: AnalysisRecord = { id: newRecordId, query, thinkingSteps: null, data: null, schema: null, status: 'analyzing', llmDurationMs: undefined, queryDurationMs: undefined };
     setAnalysisHistory((prev) => [...prev, newRecord]);
     setUiState('analyzing');
 
     try {
-      const result = await agentExecutor.execute(query, signal);
+      // Get saved persona from profile skills (first skill) or fallback to business_user
+      const profilePersonaId = userProfile?.skills?.[0];
+
+      // Try to infer persona from user input (priority)
+      const inferredPersonaId = inferPersonaFromInput(query);
+
+      // Determine effective persona with fallback to business_user
+      const effectivePersonaId = inferredPersonaId || profilePersonaId || 'business_user';
+      const effectivePersona = getPersonaById(effectivePersonaId);
+
+      // Log inference for debugging
+      console.log('[Workbench] Persona inference:', {
+        profile: profilePersonaId,
+        inferred: inferredPersonaId,
+        effective: effectivePersonaId
+      });
+
+      // Show info message if inferred persona differs from profile
+      if (inferredPersonaId && inferredPersonaId !== profilePersonaId) {
+        message.info(
+          `Detected you might be "${effectivePersona.displayName}", optimized analysis suggestions accordingly`,
+          3
+        );
+      }
+
+      // Initialize AgentExecutor with persona context
+      const agentExecutor = new AgentExecutor(llmConfig, executeQuery);
+
+      // 显式标注为 any，允许读取扩展字段
+      const result: any = await agentExecutor.execute(query, signal, {
+        persona: effectivePersonaId
+      });
+
+      // 从 result 上“按需读取”，如果 AgentExecutor 暂时没有返回这两个字段，则为 undefined
+      const llmDurationMs: number | undefined = result.llmDurationMs;
+      const queryDurationMs: number | undefined = result.queryDurationMs;
 
       if (result.cancelled) {
         setAnalysisHistory((prev) => prev.filter((rec) => rec.id !== newRecordId));
@@ -262,12 +332,14 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
 
       setAnalysisHistory((prev) =>
         prev.map((rec) =>
-          rec.id === newRecordId ? { 
-            ...rec, 
-            status: 'resultsReady', 
-            thinkingSteps: { tool: result.tool, params: result.params, thought: result.thought }, 
+          rec.id === newRecordId ? {
+            ...rec,
+            status: 'resultsReady',
+            thinkingSteps: { tool: result.tool, params: result.params, thought: result.thought },
             data: result.result, // AgentExecutor returns 'result' as the data array
-            schema: result.schema // AgentExecutor now returns 'schema'
+            schema: result.schema, // AgentExecutor now returns 'schema'
+            llmDurationMs,
+            queryDurationMs,
           } : rec
         )
       );
@@ -281,6 +353,24 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
     } finally {
       setUiState('fileLoaded');
       abortControllerRef.current = null;
+    }
+  };
+
+  // 新增：从结果卡片点“编辑”，把查询填回输入框
+  const handleEditQuery = (query: string) => {
+    setCurrentInput(query);
+    // 滚动到底部，方便用户看到输入框
+    contentRef.current?.scrollTo({ top: contentRef.current.scrollHeight, behavior: 'smooth' });
+  };
+
+  // 新增：从结果卡片点“复制”
+  const handleCopyQuery = async (query: string) => {
+    try {
+      await navigator.clipboard.writeText(query);
+      message.success('提示词已复制到剪贴板');
+    } catch (e) {
+      console.error('复制失败:', e);
+      message.error('复制失败，请手动复制');
     }
   };
 
@@ -356,6 +446,11 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
             onDownvote={handleDownvote}
             onRetry={handleRetry}
             onDelete={() => handleDeleteRecord(record.id)} // Pass delete handler
+            llmDurationMs={record.llmDurationMs}         // <-- 传递 LLM 耗时
+            queryDurationMs={record.queryDurationMs}     // <-- 传递查询耗时
+            // 新增：编辑 / 复制 回调
+            onEditQuery={handleEditQuery}
+            onCopyQuery={handleCopyQuery}
           />
         ))}
       </div>
@@ -387,6 +482,23 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
             {renderAnalysisView()}
           </div>
           <div style={{ flexShrink: 0, paddingTop: '12px' }}>
+            <Drawer
+              title="用户角色设置"
+              placement="right"
+              onClose={handleProfileDrawerClose}
+              open={profileDrawerVisible}
+              width={600}
+              maskStyle={{ backgroundColor: 'rgba(0, 0, 0, 0.3)' }}
+              style={{
+                background: 'rgba(24, 24, 28, 0.98)',
+              }}
+              bodyStyle={{
+                padding: 24,
+                background: 'rgba(24, 24, 28, 0.98)',
+              }}
+            >
+              <ProfilePage />
+            </Drawer>
             <ChatPanel
               onSendMessage={handleStartAnalysis}
               isAnalyzing={uiState === 'analyzing'}
@@ -400,6 +512,10 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
               setError={setChatError}
               showScrollToBottom={showScrollToBottom}
               onScrollToBottom={handleScrollToBottom}
+              onPersonaBadgeClick={handlePersonaBadgeClick}
+              // 新增：与输入框双向绑定，支持“编辑”回填
+              initialMessage={currentInput}
+              setInitialMessage={setCurrentInput}
             />
           </div>
         </div>

@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Card, Empty, Typography, Table, Tag, Space, Divider, Spin, Alert, Button, Collapse, Avatar, Popconfirm } from 'antd';
-import { LikeOutlined, DislikeOutlined, RedoOutlined, LikeFilled, DeleteOutlined } from '@ant-design/icons';
+import { LikeOutlined, DislikeOutlined, RedoOutlined, LikeFilled, DeleteOutlined, EditOutlined, CopyOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table'; // Import ColumnsType for better typing
+import ReactMarkdown from 'react-markdown';
 
 const { Paragraph } = Typography;
 
@@ -15,45 +16,72 @@ interface ResultsDisplayProps {
   onDownvote: (query: string) => void;
   onRetry: (query: string) => void;
   onDelete: () => void;
+  llmDurationMs?: number;    // <-- 新增：LLM 耗时（毫秒）
+  queryDurationMs?: number;  // <-- 新增：查询耗时（毫秒）
+  onEditQuery: (query: string) => void;
+  onCopyQuery: (query: string) => void;
 }
 
-const ThinkingSteps: React.FC<{ steps: { tool: string; params: any, thought?: string } }> = ({ steps }) => (
-  <Collapse ghost style={{ margin: '0 -24px' }}>
-    <Collapse.Panel header="查看AI思考过程" key="1">
-      <div style={{ padding: '16px 24px 0 24px' }}>
-        <Space direction="vertical" style={{ width: '100%', gap: '16px' }}>
-          {steps.thought && (
-            <Space align="start">
-              <Avatar src="/icons/icon-128.png" size={24} />
-              <Typography.Text style={{ color: '#d9d9d9' }}>{steps.thought}</Typography.Text>
-            </Space>
-          )}
+// 将毫秒转为秒字符串，如 "耗时 1.2s"
+const formatDurationSeconds = (ms?: number): string | null => {
+  if (ms == null || !Number.isFinite(ms)) return null;
+  const seconds = ms / 1000;
+  return `耗时 ${seconds.toFixed(1)}s`;
+};
 
-          <div>
-            <Typography.Text strong>1. 决定调用工具</Typography.Text>
-            <div style={{ marginTop: '4px' }}>
-              <Tag color="blue">{steps.tool}</Tag>
+const ThinkingSteps: React.FC<{ steps: { tool: string; params: any, thought?: string }, llmDurationMs?: number }> = ({ steps, llmDurationMs }) => {
+  const llmDurationLabel = formatDurationSeconds(llmDurationMs);
+
+  return (
+    <Collapse ghost style={{ margin: '0 -24px' }}>
+      <Collapse.Panel
+        header={
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>查看AI思考过程</span>
+            {llmDurationLabel && (
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                {llmDurationLabel}
+              </Typography.Text>
+            )}
+          </div>
+        }
+        key="1"
+      >
+        <div style={{ padding: '16px 24px 0 24px' }}>
+          <Space direction="vertical" style={{ width: '100%', gap: '16px' }}>
+            {steps.thought && (
+              <Space align="start">
+                <Avatar src="/icons/icon-128.png" size={24} />
+                <Typography.Text style={{ color: '#d9d9d9' }}>{steps.thought}</Typography.Text>
+              </Space>
+            )}
+
+            <div>
+              <Typography.Text strong>1. 决定调用工具</Typography.Text>
+              <div style={{ marginTop: '4px' }}>
+                <Tag color="blue">{steps.tool}</Tag>
+              </div>
             </div>
-          </div>
-          <div>
-            <Typography.Text strong>2. 准备了以下参数</Typography.Text>
-            <pre style={{
-              background: '#1f2123',
-              border: '1px solid rgba(255, 255, 255, 0.1)',
-              padding: '8px 12px',
-              borderRadius: 4,
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-all',
-              marginTop: '4px'
-            }}>
-              <code>{JSON.stringify(steps.params, null, 2)}</code>
-            </pre>
-          </div>
-        </Space>
-      </div>
-    </Collapse.Panel>
-  </Collapse>
-);
+            <div>
+              <Typography.Text strong>2. 准备了以下参数</Typography.Text>
+              <pre style={{
+                background: '#1f2123',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                padding: '8px 12px',
+                borderRadius: 4,
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-all',
+                marginTop: '4px'
+              }}>
+                <code>{JSON.stringify(steps.params, null, 2)}</code>
+              </pre>
+            </div>
+          </Space>
+        </div>
+      </Collapse.Panel>
+    </Collapse>
+  );
+};
 
 // Helper to format Date into UTC 'YYYY-MM-DD HH:mm:ss'
 const formatDateToUTCString = (d: Date): string => {
@@ -108,8 +136,9 @@ const formatTimestamp = (value: any): string => {
   return String(value);
 };
 
-const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ query, status, data, schema, thinkingSteps, onUpvote, onDownvote, onRetry, onDelete }) => {
+const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ query, status, data, schema, thinkingSteps, onUpvote, onDownvote, onRetry, onDelete, llmDurationMs, queryDurationMs, onEditQuery, onCopyQuery }) => {
   const [voted, setVoted] = useState<'up' | null>(null);
+  const queryDurationLabel = formatDurationSeconds(queryDurationMs);
 
   const handleUpvoteClick = () => {
     setVoted('up');
@@ -119,46 +148,94 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ query, status, data, sc
   const renderContent = () => {
     const iconStyle = { fontSize: '16px' };
     const commonActions = (
-        <div style={{ padding: '2px 0' }}>
-          <Space size="small">
+      <div style={{ padding: '2px 0' }}>
+        <Space size="small">
+          <Button
+            type="text"
+            icon={voted === 'up'
+              ? <LikeFilled style={{ ...iconStyle, color: '#1890ff' }} />
+              : <LikeOutlined style={iconStyle} />
+            }
+            onClick={handleUpvoteClick}
+          />
+          <Button
+            type="text"
+            icon={<DislikeOutlined style={iconStyle} />}
+            onClick={() => onDownvote(query)}
+          />
+          <Button
+            type="text"
+            icon={<RedoOutlined style={iconStyle} />}
+            onClick={() => onRetry(query)}
+          />
+          <Popconfirm
+            title="您确定要删除此条记录吗？"
+            onConfirm={onDelete}
+            okText="确定"
+            cancelText="取消"
+          >
             <Button
-                type="text"
-                icon={voted === 'up'
-                    ? <LikeFilled style={{ ...iconStyle, color: '#1890ff' }} />
-                    : <LikeOutlined style={iconStyle} />
-                }
-                onClick={handleUpvoteClick}
+              type="text"
+              icon={<DeleteOutlined style={{ ...iconStyle, color: '#ff4d4f' }} />}
+              danger
             />
-            <Button
-                type="text"
-                icon={<DislikeOutlined style={iconStyle} />}
-                onClick={() => onDownvote(query)}
-            />
-            <Button
-                type="text"
-                icon={<RedoOutlined style={iconStyle} />}
-                onClick={() => onRetry(query)}
-            />
-            <Popconfirm
-                title="您确定要删除此条记录吗？"
-                onConfirm={onDelete}
-                okText="确定"
-                cancelText="取消"
-            >
-              <Button
-                  type="text"
-                  icon={<DeleteOutlined style={{...iconStyle, color: '#ff4d4f'}} />}
-                  danger
-              />
-            </Popconfirm>
-          </Space>
+          </Popconfirm>
+        </Space>
+      </div>
+    );
+
+    // 公共的 Card 标题：左侧为 Markdown 渲染的 Query，右侧是编辑/复制按钮（右上角对齐）
+    const renderCardTitle = () => (
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-start', // 关键：两侧都从容器顶部对齐
+          gap: 8,
+        }}
+      >
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <Typography.Text style={{ whiteSpace: 'pre-wrap' }}>
+            <ReactMarkdown>{`**Query:** ${query}`}</ReactMarkdown>
+          </Typography.Text>
         </div>
+        <Space
+          size="small"
+          style={{
+            flexShrink: 0,
+            alignSelf: 'flex-start', // 确保按钮组本身贴着上边缘
+          }}
+        >
+          <Button
+            size="small"
+            type="text"
+            icon={<EditOutlined />}
+            onClick={(e) => {
+              e.stopPropagation();
+              onEditQuery(query);
+            }}
+          >
+            编辑
+          </Button>
+          <Button
+            size="small"
+            type="text"
+            icon={<CopyOutlined />}
+            onClick={(e) => {
+              e.stopPropagation();
+              onCopyQuery(query);
+            }}
+          >
+            复制
+          </Button>
+        </Space>
+      </div>
     );
 
     if (status === 'analyzing') {
       return (
-        <Card 
-          title={`Query: "${query}"`}
+        <Card
+          title={renderCardTitle()}
           style={{ background: '#2a2d30', border: '1px solid rgba(255, 255, 255, 0.15)' }}
         >
           <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '150px' }}>
@@ -170,7 +247,7 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ query, status, data, sc
 
     if (status === 'resultsReady') {
       const cardProps = {
-        title: `Query: "${query}"`,
+        title: renderCardTitle(),
         actions: [commonActions],
         style: { background: '#2a2d30', border: '1px solid rgba(255, 255, 255, 0.15)' },
         bodyStyle: { padding: '0 24px 8px 24px' },
@@ -180,11 +257,27 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ query, status, data, sc
         <Space direction="vertical" style={{ width: '100%' }}>
           {thinkingSteps && (
             <>
-              <ThinkingSteps steps={thinkingSteps} />
+              <ThinkingSteps steps={thinkingSteps} llmDurationMs={llmDurationMs} />
               <Divider style={{ borderColor: 'rgba(255, 255, 255, 0.15)', margin: '0' }} />
             </>
           )}
-          <Paragraph style={{ paddingTop: '16px' }}><strong>分析结果:</strong></Paragraph>
+          <div
+            style={{
+              paddingTop: '16px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}
+          >
+            <Paragraph style={{ margin: 0 }}>
+              <strong>分析结果:</strong>
+            </Paragraph>
+            {queryDurationLabel && (
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                {queryDurationLabel}
+              </Typography.Text>
+            )}
+          </div>
         </Space>
       );
 
@@ -264,7 +357,7 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ query, status, data, sc
         </Card>
       );
     }
-    
+
     return null;
   };
 
