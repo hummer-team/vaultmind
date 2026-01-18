@@ -146,8 +146,8 @@ Implementation details may vary, but the `agent.md` design expects:
 
 ### Prerequisites
 
-- Node.js (LTS version recommended)
-- pnpm / yarn / npm
+- bun (LTS version recommended)
+- bun run build
 - Access to a configured backend agent service and model provider
 
 ### Install Dependencies
