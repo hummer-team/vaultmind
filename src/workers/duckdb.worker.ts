@@ -22,10 +22,10 @@ self.onmessage = async (event: MessageEvent) => {
 
         // Resources should now contain absolute URLs from sandbox.ts
         const DUCKDB_BUNDLES: any = {
-          mvp: {
-            mainModule: resources['duckdb-mvp.wasm'],
-            mainWorker: resources['duckdb-browser-mvp.worker.js'],
-          },
+          // mvp: {
+          //   mainModule: resources['duckdb-mvp.wasm'],
+          //   mainWorker: resources['duckdb-browser-mvp.worker.js'],
+          // },
           eh: {
             mainModule: resources['duckdb-eh.wasm'],
             mainWorker: resources['duckdb-browser-eh.worker.js'],

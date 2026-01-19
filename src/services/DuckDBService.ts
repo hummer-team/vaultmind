@@ -80,12 +80,17 @@ export class DuckDBService {
       await c.query('INSTALL arrow from community;');
       await c.query('LOAD arrow;');
       console.log('[DuckDBService] LOAD arrow; executed successfully.');
-      await Promise.all([
-        c.query("SET memory_limit = '1GB';"),
-        c.query('SET preserve_insertion_order = false;'),
-        c.query('SET enable_progress_bar = false;')
-      ]);
-      const res = await c.query("SELECT name, value FROM duckdb_settings() WHERE name like  '%threads%';");
+
+      // Add explicit log to verify the exact config being applied
+      //console.log("[DuckDBService] Setting system configs: memory_limit='1GB', checkpoint_threshold=0");
+      // await Promise.all([
+      //   c.query("SET memory_limit = '1024MiB';"),
+      //   c.query("SET checkpoint_threshold = 0;"),
+      // ]);
+
+      const res = await c.query(
+        "SELECT name, value FROM duckdb_settings() WHERE name like  '%threads%' or name like '%memory%';"
+      );
       const setttings = this._extractData(res);
       console.log('[DuckDBService] sys settings: ', setttings);
     } catch (e) {
