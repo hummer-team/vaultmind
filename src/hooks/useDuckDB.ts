@@ -1,6 +1,6 @@
 import { useCallback, useState, useEffect, useMemo } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { getDuckDBResources } from '../utils/DuckDBEngineDefine';
+import { getDuckDBResources } from '../utils/duckDBEngineDefine.ts';
 
 // Type definitions remain the same
 interface AppMessage {

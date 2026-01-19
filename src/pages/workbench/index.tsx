@@ -4,18 +4,18 @@ import { v4 as uuidv4 } from 'uuid';
 import ChatPanel from './components/ChatPanel';
 import ResultsDisplay from './components/ResultsDisplay';
 import { SheetSelector } from './components/SheetSelector';
-import { AgentExecutor } from '../../services/llm/AgentExecutor';
-import { LLMConfig } from '../../services/llm/LLMClient';
+import { AgentExecutor } from '../../services/llm/agentExecutor.ts';
+import { LLMConfig } from '../../services/llm/llmClient.ts';
 import Sandbox from '../../components/layout/Sandbox';
 import { useDuckDB } from '../../hooks/useDuckDB';
 import { useFileParsing } from '../../hooks/useFileParsing';
 import { WorkbenchState, Attachment } from '../../types/workbench.types';
-import { settingsService } from '../../services/SettingsService';
+import { settingsService } from '../../services/settingsService.ts';
 import { inferPersonaFromInput } from '../../utils/personaInference';
 import { getPersonaById } from '../../config/personas';
 import ProfilePage from "../settings/ProfilePage.tsx";
 import { getPersonaSuggestions } from '../../config/personaSuggestions';
-import { useUserStore } from '../../status/AppStatusManager.ts';
+import { useUserStore } from '../../status/appStatusManager.ts';
 
 // Configuration
 const MAX_FILES = import.meta.env.VITE_LLM_PROVIDER as number || 1; // Default to 1, can be increased later

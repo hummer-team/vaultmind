@@ -18,12 +18,12 @@
   - 前端 UI（React 页面/组件）：`src/pages/workbench` 下的 Workbench、ChatPanel、FileDropzone、ResultsDisplay 等。
   - Hook 层：`src/hooks/useLLMAgent.ts`（对外的 Agent API 层）、`src/hooks/useDuckDB.ts`（与 DuckDB worker 协作）、`src/hooks/useFileParsing.ts`（文件解析与上传）等。
   - LLM 服务层（agent 逻辑）：
-    - `src/services/llm/LLMClient.ts`：LLM API 客户端（目前使用官方 `openai` npm 包）。
-    - `src/services/llm/PromptManager.ts`：管理 prompt 模板与构建完整的 prompt 文本。
-    - `src/services/llm/AgentExecutor.ts`：Agent 的执行器——负责：获取表结构、构建 prompt、调用 LLM、解析 LLM 响应并调用工具。 
-  - Tools：`src/services/tools/DuckdbTools.ts`（当前仅 `sql_query_tool`，负责执行 SQL 并返回结果）。
+    - `src/services/llm/llmClient.ts`：LLM API 客户端（目前使用官方 `openai` npm 包）。
+    - `src/services/llm/promptManager.ts`：管理 prompt 模板与构建完整的 prompt 文本。
+    - `src/services/llm/agentExecutor.ts`：Agent 的执行器——负责：获取表结构、构建 prompt、调用 LLM、解析 LLM 响应并调用工具。 
+  - Tools：`src/services/tools/duckdbTools.ts`（当前仅 `sql_query_tool`，负责执行 SQL 并返回结果）。
   - Worker：`src/workers/duckdb.worker.ts`（DuckDB WASM worker，负责初始化 DuckDB、加载文件缓冲区、执行 SQL）。
-  - 其他：`src/services/DuckDBService.ts`（在 worker/主线程间封装 DuckDB 操作），`src/services/SettingsService.ts`、`src/services/StorageService.ts`、`src/status/AppStatusManager.ts` 等。
+  - 其他：`src/services/duckDBService.ts`（在 worker/主线程间封装 DuckDB 操作），`src/services/settingsService.ts`、`src/services/storageService.ts`、`src/status/appStatusManager.ts` 等。
 
 三、关键文件与职责（逐项）
 - Hooks
@@ -32,23 +32,23 @@
   - `src/hooks/useFileParsing.ts`：负责把用户上传的文件读取为 buffer，并通过 sandbox/iframe 把文件注册到 DuckDB（见 `loadFileInDuckDB`）。
 
 - LLM 相关服务
-  - `src/services/llm/LLMClient.ts`
+  - `src/services/llm/llmClient.ts`
     - 使用 `openai` 官方客户端构建 LLM 客户端实例。
     - 类型：LLMConfig (provider, apiKey, baseURL, modelName, mockEnabled?)。
     - 注意：构造时会把 apiKey、baseURL 带入；浏览器模式允许 dangerouslyAllowBrowser。
-  - `src/services/llm/PromptManager.ts`
+  - `src/services/llm/promptManager.ts`
     - 管理不同角色/场景的 prompt 集合，目前导入了 `src/prompts/ecommerce.ts`。
     - 提供 `getToolSelectionPrompt(role, userInput, tableSchema)` 生成完整 prompt（会将 tableSchema JSON.stringify 后嵌入模板）。
-  - `src/services/llm/AgentExecutor.ts`
+  - `src/services/llm/agentExecutor.ts`
     - Agent 的核心：
       - 通过 `executeQuery`（注入函数，来自 useDuckDB）读取数据库表名与 schema（会尝试查询 `information_schema.tables` 或回退到 `DESCRIBE main_table`）。
       - 通过 PromptManager 构造 LLM 输入（role 固定为 'ecommerce' 在当前实现中）。
-      - 调用 LLMClient（若 `llmConfig.mockEnabled` 为 true，则会返回一个 mock 响应用于调试）。
+      - 调用 LlmClient（若 `llmConfig.mockEnabled` 为 true，则会返回一个 mock 响应用于调试）。
       - 解析 LLM 返回：支持 LLM 的 function/tool 调用（tool_calls / message.content 中嵌入的 JSON），并将对应工具从 `services/tools` 注册表中调用。
       - 对 DuckDB 返回的大整数（BigInt）进行字符串化处理 `_sanitizeBigInts`，以便 JSON 序列化与前端显示。
 
 - Tools
-  - `src/services/tools/DuckdbTools.ts`
+  - `src/services/tools/duckdbTools.ts`
     - 当前实现了 `sql_query_tool`，这是一个通用 SQL 执行器，签名为 `(executeQuery, {query}) => Promise<any>`。
     - `tools` 注册表用于在 AgentExecutor 中根据工具名查找实现。
     - `toolSchemas` 为工具声明 JSON Schema，用于在向 LLM 请求时把工具能力声明给 LLM（在调用 openai.chat.completions.create 时传入）。
@@ -88,7 +88,7 @@
 
 LLM 模型约束与 Skills 声明
 - 目的与概览  
-  - 该节说明在向 LLM 提示与解析工具调用时的“技能（skills）声明”格式与必需的安全/格式约束，及如何在代码层面（`PromptManager` / `AgentExecutor` / `LLMClient`）落地这些约束，避免数据泄露或危险操作。
+  - 该节说明在向 LLM 提示与解析工具调用时的“技能（skills）声明”格式与必需的安全/格式约束，及如何在代码层面（`PromptManager` / `AgentExecutor` / `LlmClient`）落地这些约束，避免数据泄露或危险操作。
 
 - Skills（技能）声明 格式（最小字段）
   - 格式说明（JSON object / 文档化模板）：每个 skill 至少包含：
@@ -111,7 +111,7 @@ LLM 模型约束与 Skills 声明
   1. 响应格式（必需）  
      - LLM 必须返回可解析的 JSON（或符合指定 `output_schema` 的结构），并包含标准字段，如 `action.tool`、`action.args`、`thought`（用于可审计的决策说明）。例如，最终应包含 `{"action":{"tool":"sql_query_tool","args":{...}},"thought":"...解释...","confidence":0.8}`。  
   2. Token / 长度限制  
-     - 在 prompt 中对 LLM 明确约束最大 token 或最大字符长度，且在 `LLMClient` 层设置超时与最大 token（model-level）。文档中建议默认限制（例如：`max_tokens` 设定为模型上限的安全子集，视模型而定）。  
+     - 在 prompt 中对 LLM 明确约束最大 token 或最大字符长度，且在 `LlmClient` 层设置超时与最大 token（model-level）。文档中建议默认限制（例如：`max_tokens` 设定为模型上限的安全子集，视模型而定）。  
   3. 禁止行为（硬禁）  
      - 严禁尝试进行任意网络访问、外部 API 调用、系统命令执行或未授权的文件读写。LLM 在决策/响应中不得包含任何凭证或明确的密钥。  
   4. SQL 执行安全约束（强制）  
@@ -126,28 +126,28 @@ LLM 模型约束与 Skills 声明
      - 建议在响应中包含 `thought`（Agent 推理）与 `confidence` 字段以便人工审查。
 
 - 在代码中如何实现这些约束（高优先级建议与位置）
-  1. `PromptManager`（文件：`src/services/llm/PromptManager.ts`）  
+  1. `PromptManager`（文件：`src/services/llm/promptManager.ts`）  
      - 在构造 prompt 时把“强制约束”作为 system message 的一部分传给 LLM（例如：“严格返回 JSON，禁止访问网络或文件系统，SQL 只能为只读 SELECT，表白名单：main_table_*，若需要更高权限必须要求用户确认”）。  
      - 在向 LLM 提供工具能力时（tools / function schemas），确保传入的 `toolSchemas` 包含 `permissions`（如 read_only、allowed_tables、max_rows）以便模型选择时可见。  
      - 在模板中明确要求 LLM 返回 `action`、`args`、`thought` 字段并遵循 `output_schema`。  
-  2. `AgentExecutor`（文件：`src/services/llm/AgentExecutor.ts`）  
+  2. `AgentExecutor`（文件：`src/services/llm/agentExecutor.ts`）  
      - 在解析到 LLM 的工具调用前，先做“工具调用白名单”与“参数校验”（验证 `toolName` 在 `tools` 注册表中）。  
      - 对 SQL 类参数执行严格的预检：- 确认只含允许的关键词（通过关键字黑名单检测 DDL/DML）；- 校验所有表名是否匹配白名单模式（例如 /^main_table_/）；- 如果 `SELECT` 未包含 `LIMIT`，自动添加 `LIMIT {max_rows}` 或拒绝并要求说明。  
      - 若检测到高风险操作（非只读、访问非白名单表），不要直接执行，应返回错误或触发“需要用户确认”的流程（返回给前端一个明确的交互提示）。  
      - 在执行工具返回结果后，再做一次输出结构校验，确保符合 `output_schema`（否则视为失败并记录原始 LLM 内容用于审计）。  
      - 使用 `_sanitizeBigInts` 等现有工具对结果进行净化，保障前端序列化安全。  
-  3. `LLMClient`（文件：`src/services/llm/LLMClient.ts`）  
+  3. `LlmClient`（文件：`src/services/llm/llmClient.ts`）  
      - 在创建请求时设置合理的超时与 `max_tokens`（或模型限制参数），并支持 `AbortSignal` 用于用户取消。  
      - 将 `dangerouslyAllowBrowser`、`baseURL` 等敏感配置在文档中明确说明，并通过环境变量管理（`VITE_LLM_API_KEY` / `VITE_LLM_API_URL` / `VITE_LLM_MODEL_NAME` / `VITE_LLM_MOCK`）。  
   4. 额外建议（跨文件）  
-     - 在 `src/services/tools/DuckdbTools.ts` 的工具 schema 中补充 `permissions` 字段，并在 AgentExecutor 中读取并强制执行。  
+     - 在 `src/services/tools/duckdbTools.ts` 的工具 schema 中补充 `permissions` 字段，并在 AgentExecutor 中读取并强制执行。  
      - 增加“预检/审计”钩子：每次 Agent 执行前后，把 LLM 原始响应、解析的 action、执行的 SQL（如有）、返回结果与时间戳写入日志/审计表（或前端可下载的审计文件）。  
      - 使用 `llmConfig.mockEnabled` 做开发环境回归测试与 E2E 测试（文档提示如何启用）。
 
 - 建议的文档更新点（供开发者实际修改代码时参考）
-  - `src/services/llm/PromptManager.ts`：在 `getToolSelectionPrompt` 中注入“强制约束”system text；把 `tools` schema 权限以参数传入。  
-  - `src/services/llm/AgentExecutor.ts`：增加 `_preflightValidateToolCall(toolName, args)` helper（检查白名单、关键字、LIMIT、permissions），以及在解析 tool_call 后调用该函数。  
-  - `src/services/llm/LLMClient.ts`：把 `chatCompletions` 调用中 `max_tokens`、`timeout` 的推荐位置与示例写在注释中，确保调用方可传 `signal` 取消请求。
+  - `src/services/llm/promptManager.ts`：在 `getToolSelectionPrompt` 中注入“强制约束”system text；把 `tools` schema 权限以参数传入。  
+  - `src/services/llm/agentExecutor.ts`：增加 `_preflightValidateToolCall(toolName, args)` helper（检查白名单、关键字、LIMIT、permissions），以及在解析 tool_call 后调用该函数。  
+  - `src/services/llm/LlmClient.ts`：把 `chatCompletions` 调用中 `max_tokens`、`timeout` 的推荐位置与示例写在注释中，确保调用方可传 `signal` 取消请求。
 
 五、Agent 执行流（详细）
 - 1. 用户在 UI（ChatPanel）输入请求并提交（或选择 suggestion）。
@@ -155,7 +155,7 @@ LLM 模型约束与 Skills 声明
 - 3. `AgentExecutor.execute(userInput)`：
    - 调用 `_getAllTableSchemas()`：先查询 `information_schema.tables`（表名以 `main_table_%` 前缀），若为空则回退到 `DESCRIBE main_table`。
    - 使用 `PromptManager.getToolSelectionPrompt('ecommerce', userInput, allTableSchemas)` 构造 prompt。
-   - 若 `llmConfig.mockEnabled` 为 true，则采用内置的 mock response；否则通过 `LLMClient.client.chat.completions.create({...})` 向 LLM 发起请求。
+   - 若 `llmConfig.mockEnabled` 为 true，则采用内置的 mock response；否则通过 `LlmClient.client.chat.completions.create({...})` 向 LLM 发起请求。
    - 解析 LLM 返回信息：优先读取 `message.tool_calls`（function 调用）；若没有，则尝试把 `message.content` 当做 JSON 来解析 action/tool 调用。
    - 根据解析到的工具调用（例如 `sql_query_tool`），从 `tools` 注册表中找到对应实现并调用（传入 `executeQuery` 与参数）。
    - 对工具返回结果做 BigInt 转字符串处理，最后把 `{ tool, params, result, thought }` 返回给调用方（Workbench）。
@@ -163,7 +163,7 @@ LLM 模型约束与 Skills 声明
 六、错误处理与常见问题
 - LLM 错误
   - 401/403：检查 `VITE_LLM_API_KEY` 与 `VITE_LLM_API_URL`。
-  - 超时/限流：检查 LLMClient 的超时/重试策略（当前客户端直接使用 `openai` 包，超时需在调用方外部管理）。
+  - 超时/限流：检查 LlmClient 的超时/重试策略（当前客户端直接使用 `openai` 包，超时需在调用方外部管理）。
 - Worker/ DuckDB 错误
   - DuckDB 初始化失败：查看 `src/workers/duckdb.worker.ts` 中的初始化日志（worker 会打印详细错误）。常见原因：bundle 资源 URL 不正确或 CORS 问题。
   - "Missing resources for DUCKDB_INIT"：说明前端没有正确传递 bundle 资源给 worker。检查 sandbox/iframe（`src/components/layout/Sandbox.tsx` 或负责注入资源的代码）。
@@ -175,12 +175,12 @@ LLM 模型约束与 Skills 声明
 七、扩展点（如何添加 prompt / tool / worker）
 - 添加新的 prompt
   1. 在 `src/prompts/` 下新建文件，例如 `finance.ts`，导出符合 `PromptTemplate` 结构（system_prompt, tool_selection_prompt_template, suggestions）。
-  2. 在 `src/services/llm/PromptManager.ts` 中把新的 prompt 集合注册到 `promptSets`。
+  2. 在 `src/services/llm/promptManager.ts` 中把新的 prompt 集合注册到 `promptSets`。
   3. 在 UI 或 AgentExecutor 中以 role 名称调用 `PromptManager.getToolSelectionPrompt('finance', userInput, tableSchema)`。
 
 - 添加新的 tool（示例：CSVImportTool）
   1. 在 `src/services/tools/` 新建 `CSVImportTool.ts`，实现类似 `sql_query_tool` 的函数签名（`(executeQuery, params) => Promise<any>`）。
-  2. 在 `src/services/tools/DuckdbTools.ts` 中把该工具添加到 `tools` 注册表，并在 `toolSchemas` 中补充 JSON Schema（供 LLM 在构造 prompts 时了解工具参数）。
+  2. 在 `src/services/tools/duckdbTools.ts` 中把该工具添加到 `tools` 注册表，并在 `toolSchemas` 中补充 JSON Schema（供 LLM 在构造 prompts 时了解工具参数）。
   3. 若该工具需要在 worker 中处理（例如大文件解析），则实现 `src/workers/csv.worker.ts` 并在前端通过 `useWorker` 或相应的 loader 调用，并在 worker/主线程间定义好消息协议（类似 `LOAD_FILE` / `DUCKDB_EXECUTE_QUERY`）。
   4. 在 `AgentExecutor` 中无需修改主要逻辑（只要工具已在注册表中），LLM 只需返回 action 指定新的 tool 名称。
 
@@ -208,11 +208,11 @@ LLM 模型约束与 Skills 声明
 - src/hooks/useLLMAgent.ts
 - src/hooks/useDuckDB.ts
 - src/hooks/useFileParsing.ts
-- src/services/llm/LLMClient.ts
-- src/services/llm/PromptManager.ts
-- src/services/llm/AgentExecutor.ts
-- src/services/tools/DuckdbTools.ts
-- src/services/DuckDBService.ts
+- src/services/llm/LlmClient.ts
+- src/services/llm/promptManager.ts
+- src/services/llm/agentExecutor.ts
+- src/services/tools/duckdbTools.ts
+- src/services/duckDBService.ts
 - src/workers/duckdb.worker.ts
 - src/pages/workbench/index.tsx
 - src/pages/workbench/components/ChatPanel.tsx

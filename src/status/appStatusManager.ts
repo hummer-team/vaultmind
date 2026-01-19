@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { settingsService, UserProfile } from '../services/SettingsService';
+import { settingsService, UserProfile } from '../services/settingsService.ts';
 
 interface UserState {
   userProfile: UserProfile | null;

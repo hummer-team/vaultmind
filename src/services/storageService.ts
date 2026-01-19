@@ -1,5 +1,5 @@
 /**
- * @file StorageService.ts
+ * @file storageService.ts
  * @description A low-level service for persisting data.
  * It abstracts the underlying storage mechanism (Chrome local storage or a remote API).
  * This service should not contain any business-specific logic.

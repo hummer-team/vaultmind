@@ -11,7 +11,7 @@ import {
 } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import { Layout, Menu, Typography, Space, Popover, Avatar } from 'antd';
-import { useUserStore } from '../../status/AppStatusManager.ts';
+import { useUserStore } from '../../status/appStatusManager.ts';
 
 const { Content, Sider } = Layout;
 const { Title } = Typography;

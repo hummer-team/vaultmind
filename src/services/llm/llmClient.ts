@@ -13,7 +13,7 @@ export interface LLMConfig {
   mockEnabled?: boolean; // <-- CRITICAL CHANGE: Add mockEnabled flag
 }
 
-export class LLMClient {
+export class LlmClient {
   // The property is now an instance of the official OpenAI client
   public readonly client: OpenAI;
   public readonly modelName: string;

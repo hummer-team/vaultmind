@@ -1,6 +1,6 @@
 console.log('[DB Worker] Script execution started.'); // <-- Added this log
 
-import { DuckDBService } from '../services/DuckDBService';
+import { DuckDBService } from '../services/duckDBService.ts';
 import * as duckdb from '@duckdb/duckdb-wasm';
 
 const duckDBService = DuckDBService.getInstance();

@@ -1,10 +1,10 @@
 /**
- * @file SettingsService.ts
+ * @file settingsService.ts
  * @description A service for managing user settings, including profile and LLM configurations.
  * It uses the StorageService for data persistence.
  */
 
-import { storageService } from './StorageService';
+import { storageService } from './storageService.ts';
 import { v4 as uuidv4 } from 'uuid';
 
 // --- Data Structures ---

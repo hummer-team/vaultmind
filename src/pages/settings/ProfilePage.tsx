@@ -17,8 +17,8 @@ import {
 } from 'antd';
 import type { UploadProps } from 'antd';
 import { UserOutlined, PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
-import { settingsService, LLMProviderConfig } from '../../services/SettingsService';
-import { useUserStore } from '../../status/AppStatusManager.ts';
+import { settingsService, LLMProviderConfig } from '../../services/settingsService.ts';
+import { useUserStore } from '../../status/appStatusManager.ts';
 import { personaRegistry } from '../../config/personas';
 
 const { Title } = Typography;

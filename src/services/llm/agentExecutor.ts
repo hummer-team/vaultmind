@@ -1,6 +1,6 @@
-import { PromptManager } from './PromptManager';
-import { tools, toolSchemas, MissingColumnError, CannotAnswerError } from '../tools/DuckdbTools';
-import { LLMClient, LLMConfig } from './LLMClient';
+import { PromptManager } from './promptManager.ts';
+import { tools, toolSchemas, MissingColumnError, CannotAnswerError } from '../tools/duckdbTools.ts';
+import { LlmClient, LLMConfig } from './llmClient.ts';
 import { Attachment } from '../../types/workbench.types';
 import OpenAI from 'openai';
 import { getPersonaById } from '../../config/personas';
@@ -11,13 +11,13 @@ export type ExecuteQueryFunc = (sql: string) => Promise<QueryResult>;
 
 export class AgentExecutor {
   private promptManager = new PromptManager();
-  private llmClient: LLMClient;
+  private llmClient: LlmClient;
   private executeQuery: ExecuteQueryFunc;
   private llmConfig: LLMConfig;
   private attachments: Attachment[];
 
   constructor(config: LLMConfig, executeQuery: ExecuteQueryFunc, attachments: Attachment[] = []) {
-    this.llmClient = new LLMClient(config);
+    this.llmClient = new LlmClient(config);
     this.executeQuery = executeQuery;
     this.llmConfig = config;
     this.attachments = attachments;

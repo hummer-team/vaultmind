@@ -1,4 +1,4 @@
-import { ExecuteQueryFunc } from '../llm/AgentExecutor'; // 导入类型
+import { ExecuteQueryFunc } from '../llm/agentExecutor.ts'; // 导入类型
 
 // --- Custom Error Types ---
 export class MissingColumnError extends Error {

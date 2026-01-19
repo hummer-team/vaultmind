@@ -5,7 +5,7 @@ import type { UploadProps } from 'antd';
 import { Attachment } from '../../../types/workbench.types';
 import './ChatPanel.css'; // Import a CSS file for animations
 import { getPersonaById } from '../../../config/personas';
-import { useUserStore } from '../../../status/AppStatusManager';
+import { useUserStore } from '../../../status/appStatusManager.ts';
 
 interface ChatPanelProps {
   onSendMessage: (message: string) => void;
