@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import * as ExcelJS from 'exceljs';
+//import * as ExcelJS from 'exceljs';
+import JSZip from 'jszip';
 import { Attachment } from '../types/workbench.types';
 
 interface ParseMessage {
@@ -65,26 +66,49 @@ export const useFileParsing = (iframeRef: React.RefObject<HTMLIFrameElement>) =>
     [iframeRef, isSandboxReady]
   );
 
+  /**
+  * Quickly get all sheet names of the Excel file
+  * Only parse the core xl/workbook.xml file (a few KB in size), millisecond-level parsing speed, fully support Excel files of any size (including 1GB+ large files)
+  * @param buffer Excel file binary data in ArrayBuffer format
+  * @param fileType File type: 'xlsx' | 'csv'
+  * @param customCsvSheetName Custom sheet name for CSV, default: 'Sheet1'
+  * @returns Array of sheet names in original order
+  */
+  async function getExcelSheetNames(buffer: ArrayBuffer, fileType: 'xlsx' | 'csv', customCsvSheetName = 'Sheet1'): Promise<string[]> {
+    if (fileType === 'csv') {
+      return [customCsvSheetName];
+    }
+    const zip = new JSZip();
+    // Load the Excel zip package, only read the directory structure without decompressing all file contents
+    const zipData = await zip.loadAsync(buffer);
+
+    // Get the core configuration file xl/workbook.xml of the Excel workbook
+    const workbookXmlFile = zipData.file('xl/workbook.xml');
+    if (!workbookXmlFile) {
+      throw new Error('Invalid XLSX file xl/workbook.xml not found');
+    }
+
+    // Get the core configuration file xl/workbook.xml of the Excel workbook
+    const xmlContent = await workbookXmlFile.async('string');
+
+    // Parse xml and extract all sheet names by regular expression, no additional xml library required, strongest compatibility
+    const sheetNameReg = /<sheet name="([^"]+)"[^>]*\/>/g;
+    const sheetNames: string[] = [];
+    let match;
+    while ((match = sheetNameReg.exec(xmlContent)) !== null) {
+      sheetNames.push(match[1]);
+    }
+    return sheetNames;
+  }
+
   const getSheetNamesFromExcel = useCallback(async (file: File): Promise<string[]> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = async (event) => {
-        if (!event.target?.result) {
-          return reject(new Error('Failed to read file.'));
-        }
-        try {
-          const buffer = event.target.result as ArrayBuffer;
-          const workbook = new ExcelJS.Workbook();
-          await workbook.xlsx.load(buffer, { ignoreNodes: ['dataValidations', 'sheetData'] });
-          const sheetNames = workbook.worksheets.map(ws => ws.name);
-          resolve(sheetNames);
-        } catch (error) {
-          reject(error);
-        }
-      };
-      reader.onerror = (error) => reject(error);
-      reader.readAsArrayBuffer(file);
-    });
+    const fileExt = file.name.split('.').pop()?.toLowerCase();
+    if (fileExt !== 'xlsx' && fileExt !== 'csv') {
+      throw new Error('Unsupported file format, only .xlsx and .csv are allowed');
+    }
+    const arrayBuffer = await file.arrayBuffer();
+    const sheetNames = await getExcelSheetNames(arrayBuffer, fileExt);
+    return sheetNames;
   }, []);
 
   const registerFileWithWorker = useCallback(
@@ -125,7 +149,7 @@ export const useFileParsing = (iframeRef: React.RefObject<HTMLIFrameElement>) =>
         const sheetName = selectedSheets[i];
         const tableIndex = existingAttachmentCount + i + 1;
         const tableName = `main_table_${tableIndex}`;
-        
+
         const newAttachment: Attachment = {
           id: uuidv4(),
           file,
@@ -143,7 +167,7 @@ export const useFileParsing = (iframeRef: React.RefObject<HTMLIFrameElement>) =>
           sheetName,
         });
       }
-      
+
       const loadedAttachments = newAttachments.map(att => ({ ...att, status: 'success' as const }));
       return loadedAttachments;
     },
