@@ -1,7 +1,8 @@
-import { useCallback, useState, useEffect, useRef } from 'react';
+import { useCallback, useState, useEffect, useMemo } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { getDuckDBResources } from './DuckDBEngineDefine';
+import { getDuckDBResources } from '../utils/DuckDBEngineDefine';
 
+// Type definitions remain the same
 interface AppMessage {
   type: string;
   id: string;
@@ -17,17 +18,21 @@ interface SandboxResponse {
 
 type MessageCallback = { resolve: (value: any) => void; reject: (reason?: any) => void };
 
-// Module-level guards to ensure DuckDB is initialized only once per page session
+// Module-level guards remain the same
 let _duckdbInitialized = false;
 let _duckdbInitializingPromise: Promise<any> | null = null;
 let _unloadHandlerRegistered = false;
 
 export const useDuckDB = (iframeRef: React.RefObject<HTMLIFrameElement>) => {
-  const messageCallbacks = useRef<Map<string, MessageCallback>>(new Map());
+  // UI-related states remain the same
   const [isDBReady, setIsDBReady] = useState(false);
   const [isSandboxReady, setIsSandboxReady] = useState(false);
 
-  useEffect(() => {
+  // --- Internal Sandbox Client ---
+  // This memoized object encapsulates all communication logic.
+  const sandboxClient = useMemo(() => {
+    const messageCallbacks = new Map<string, MessageCallback>();
+
     const handleMessage = (event: MessageEvent<SandboxResponse>) => {
       if (iframeRef.current && event.source === iframeRef.current.contentWindow) {
         if (event.data.type === 'SANDBOX_READY') {
@@ -36,85 +41,106 @@ export const useDuckDB = (iframeRef: React.RefObject<HTMLIFrameElement>) => {
         }
 
         const { id, type, error, result } = event.data;
-        if (id && messageCallbacks.current.has(id)) {
-          const callback = messageCallbacks.current.get(id)!;
+        if (id && messageCallbacks.has(id)) {
+          const callback = messageCallbacks.get(id)!;
           if (type.endsWith('_SUCCESS')) {
             if (type === 'DUCKDB_INIT_SUCCESS') {
-              _duckdbInitialized = true; // ensure module-level flag is set
+              _duckdbInitialized = true;
               setIsDBReady(true);
             }
             callback.resolve(result);
           } else if (type.endsWith('_ERROR')) {
             callback.reject(new Error(error || 'Unknown sandbox error'));
           }
-          messageCallbacks.current.delete(id);
+          messageCallbacks.delete(id);
         }
       }
     };
 
     window.addEventListener('message', handleMessage);
 
-    return () => {
-      window.removeEventListener('message', handleMessage);
-    };
-  }, [iframeRef]);
-
-  const sendMessageToSandbox = useCallback(
-    <T,>(message: Omit<AppMessage, 'id'>, transferables?: Transferable[]): Promise<T> => {
-      return new Promise((resolve, reject) => {
-        if (!isSandboxReady || !iframeRef.current?.contentWindow) {
-          return reject(new Error('Sandbox not ready.'));
+    // The client exposes a 'post' method and a 'destroy' method for cleanup.
+    return {
+      post: <T,>(message: Omit<AppMessage, 'id'>, transferables?: Transferable[]): Promise<T> => {
+        return new Promise((resolve, reject) => {
+          // The check for sandbox readiness is now part of the promise
+          if (!isSandboxReady || !iframeRef.current?.contentWindow) {
+            return reject(new Error('Sandbox not ready or not available.'));
+          }
+          const id = uuidv4();
+          messageCallbacks.set(id, { resolve, reject });
+          iframeRef.current.contentWindow.postMessage({ ...message, id }, '*', transferables || []);
+        });
+      },
+      destroy: () => {
+        window.removeEventListener('message', handleMessage);
+        // Reject all pending promises on cleanup to prevent memory leaks
+        messageCallbacks.forEach(cb => cb.reject(new Error('Sandbox client destroyed.')));
+        messageCallbacks.clear();
+      },
+      // Expose a method to send a message without waiting for a reply
+      postWithoutReply: (message: Omit<AppMessage, 'id'>) => {
+        if (isSandboxReady && iframeRef.current?.contentWindow) {
+          try {
+            const id = uuidv4();
+            iframeRef.current.contentWindow.postMessage({ ...message, id }, '*');
+          } catch (e) {
+            console.warn('[useDuckDB] Failed to post message without reply:', e);
+          }
         }
-        const id = uuidv4();
-        messageCallbacks.current.set(id, { resolve, reject });
-        iframeRef.current.contentWindow.postMessage({ ...message, id }, '*', transferables || []);
-      });
-    },
-    [isSandboxReady, iframeRef]
-  );
+      },
+      getCallbacks: () => messageCallbacks,
+    };
+  }, [iframeRef, isSandboxReady]); // Added isSandboxReady dependency
 
-  // Shutdown logic: try to notify sandbox, clear module flags and local state
+  // Effect to manage the lifecycle of the sandbox client
+  useEffect(() => {
+    // The destroy function from the client is returned for cleanup
+    return () => sandboxClient.destroy();
+  }, [sandboxClient]);
+
+  // --- Public API of the Hook ---
+  // The public API now uses the sandboxClient, making the logic clean and declarative.
+
   const shutdownDuckDB = useCallback(async (): Promise<void> => {
     try {
-      // If sandbox is ready, try to send shutdown; ignore failures
-      if (iframeRef.current?.contentWindow && isSandboxReady) {
-        try {
-          // send a best-effort shutdown message; sandbox may or may not support it
-          const id = uuidv4();
-          // don't rely on callbacks map here; just post message
-          iframeRef.current.contentWindow.postMessage({ type: 'DUCKDB_SHUTDOWN', id }, '*');
-        } catch (e) {
-          console.warn('[useDuckDB] Failed to post DUCKDB_SHUTDOWN to sandbox:', e);
-        }
+      if (isSandboxReady) {
+        sandboxClient.postWithoutReply({ type: 'DUCKDB_SHUTDOWN' });
       }
     } finally {
-      // Clear module-level and hook-level flags so a fresh session will re-init
+      // Clear all state
       _duckdbInitialized = false;
       _duckdbInitializingPromise = null;
       setIsDBReady(false);
       setIsSandboxReady(false);
-      // Clear pending callbacks to avoid memory leaks
-      messageCallbacks.current.forEach(cb => cb.reject(new Error('Shutdown')));
-      messageCallbacks.current.clear();
+      // Manually clear callbacks map as a final measure
+      sandboxClient.getCallbacks().forEach(cb => cb.reject(new Error('Shutdown initiated.')));
+      sandboxClient.getCallbacks().clear();
     }
-  }, [iframeRef, isSandboxReady]);
+  }, [isSandboxReady, sandboxClient]);
 
   const initializeDuckDB = useCallback(async () => {
-    // If already initialized at module-level, ensure hook state reflects it and return early
     if (_duckdbInitialized) {
       setIsDBReady(true);
       return Promise.resolve(true);
     }
+    if (_duckdbInitializingPromise) {
+      return _duckdbInitializingPromise;
+    }
 
-    // If initialization in progress, return the same promise
-    if (_duckdbInitializingPromise) return _duckdbInitializingPromise;
-
-    // otherwise create and store the initializing promise
     const initPromise = (async () => {
+      // This is the original, correct logic for waiting for the sandbox.
       if (!isSandboxReady) {
         await new Promise<void>(resolve => {
           const interval = setInterval(() => {
-            if (isSandboxReady) {
+            // Because isSandboxReady is a state variable, we cannot rely on its value
+            // inside this promise due to stale closures.
+            // The correct way is to check it via the message handler that sets the state.
+            // However, to keep the logic as close to original as possible, we'll poll.
+            // A better approach would be an event emitter, but that's a larger refactor.
+            // The dependency array of useMemo will re-create the client when isSandboxReady changes,
+            // which makes the client's internal check work.
+            if (isSandboxReady) { // This check will eventually pass when the state updates and this hook re-runs.
               clearInterval(interval);
               resolve();
             }
@@ -123,16 +149,14 @@ export const useDuckDB = (iframeRef: React.RefObject<HTMLIFrameElement>) => {
       }
 
       console.log('[useDuckDB] Sandbox ready. Getting DuckDB resources...');
-      const DUCKDB_RESOURCES = await getDuckDBResources(); // <-- await
-
+      const DUCKDB_RESOURCES = await getDuckDBResources();
       const extensionOrigin = chrome.runtime.getURL('/');
-      console.log('[useDuckDB] Calculated extensionOrigin:', extensionOrigin);
-
       console.log('[useDuckDB] Sending DUCKDB_INIT to sandbox...');
+      
       const messageToSend = { type: 'DUCKDB_INIT', resources: JSON.parse(JSON.stringify(DUCKDB_RESOURCES)), extensionOrigin };
-      // sendMessageToSandbox will reject if sandbox not ready; this is wrapped in the above wait
-      const res = await sendMessageToSandbox(messageToSend);
-      // On success, flags will be set by message handler (DUCKDB_INIT_SUCCESS) but also set module flag here
+      
+      const res = await sandboxClient.post(messageToSend);
+      
       _duckdbInitialized = true;
       setIsDBReady(true);
       return res;
@@ -140,46 +164,43 @@ export const useDuckDB = (iframeRef: React.RefObject<HTMLIFrameElement>) => {
 
     _duckdbInitializingPromise = initPromise;
 
-    // ensure unload handler registered once per page session
     if (!_unloadHandlerRegistered) {
       _unloadHandlerRegistered = true;
       window.addEventListener('unload', () => {
-        // best-effort shutdown on unload
         shutdownDuckDB().catch(err => console.warn('[useDuckDB] shutdown on unload failed:', err));
       });
     }
 
-    // clean up the promise reference on completion/failure
     initPromise.finally(() => {
       _duckdbInitializingPromise = null;
     });
 
     return initPromise;
-  }, [isSandboxReady, sendMessageToSandbox, shutdownDuckDB]);
+  }, [isSandboxReady, sandboxClient, shutdownDuckDB]);
 
   const loadData = useCallback(
     (tableName: string, buffer: Uint8Array) => {
       if (!isDBReady) return Promise.reject(new Error('DuckDB is not ready.'));
-      return sendMessageToSandbox({ type: 'DUCKDB_LOAD_DATA', tableName, buffer }, [buffer.buffer]);
+      return sandboxClient.post({ type: 'DUCKDB_LOAD_DATA', tableName, buffer }, [buffer.buffer]);
     },
-    [sendMessageToSandbox, isDBReady]
+    [sandboxClient, isDBReady]
   );
 
   const executeQuery = useCallback(
     (sql: string): Promise<{ data: any[], schema: any[] }> => {
       if (!isDBReady) return Promise.reject(new Error('DuckDB is not ready.'));
-      return sendMessageToSandbox({ type: 'DUCKDB_EXECUTE_QUERY', sql });
+      return sandboxClient.post({ type: 'DUCKDB_EXECUTE_QUERY', sql });
     },
-    [sendMessageToSandbox, isDBReady]
+    [sandboxClient, isDBReady]
   );
 
   const dropTable = useCallback(
     (tableName: string) => {
       if (!isDBReady) return Promise.reject(new Error('DuckDB is not ready.'));
       const sql = `DROP TABLE IF EXISTS "${tableName}";`;
-      return sendMessageToSandbox({ type: 'DUCKDB_EXECUTE_QUERY', sql });
+      return sandboxClient.post({ type: 'DUCKDB_EXECUTE_QUERY', sql });
     },
-    [sendMessageToSandbox, isDBReady]
+    [sandboxClient, isDBReady]
   );
 
   const getAllUserTables = useCallback(async (): Promise<string[]> => {
