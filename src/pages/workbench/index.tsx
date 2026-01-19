@@ -215,7 +215,7 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
         status: 'uploading',
       };
       setAttachments((prev) => [...prev, newAttachment]);
-
+      console.log('[Workbench] Loading file into DuckDB:', file.name);
       await loadFileInDuckDB(file, newAttachment.tableName);
 
       setAttachments((prev) =>
@@ -243,6 +243,7 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
     setUiState('parsing');
 
     try {
+      console.log('[Workbench] Loading sheets:', selectedSheets);
       const loadedAttachments = await loadSheetsInDuckDB(fileToLoad, selectedSheets, attachments.length);
       setAttachments(prev => [...prev, ...loadedAttachments]);
 

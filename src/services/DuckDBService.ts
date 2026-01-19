@@ -22,9 +22,20 @@ export class DuckDBService {
     }
 
     console.log('[DuckDBService] Initializing DuckDB...');
-
+    // const config: duckdb.DuckDBConfig = {
+    //   maximumThreads: 4,
+    //   useDirectIO: true,
+    //   allowUnsignedExtensions: true,
+    //   arrowLosslessConversion: true,
+    //   query: {
+    //     castBigIntToDouble: true,
+    //     castDecimalToDouble: true,
+    //     queryPollingInterval: 10
+    //   }
+    // };
     // The workerInstance is now the CoreWorker, which is correct for AsyncDuckDB
     this.db = new duckdb.AsyncDuckDB(this.logger, workerInstance);
+
     console.log('[DuckDBService] AsyncDuckDB instance created with CoreWorker instance.');
 
     // Add a check for SharedArrayBuffer before instantiation
@@ -61,7 +72,7 @@ export class DuckDBService {
     try {
       // --- CRITICAL CHANGE: Install excel and load arrow ---
       console.log('[DuckDBService] Executing INSTALL excel;');
-      await c.query('INSTALL excel;'); // Let it fetch from the web
+      await c.query('INSTALL excel;');
       await c.query('LOAD excel;');
       console.log('[DuckDBService] Excel extension loaded successfully.');
 
@@ -69,7 +80,14 @@ export class DuckDBService {
       await c.query('INSTALL arrow from community;');
       await c.query('LOAD arrow;');
       console.log('[DuckDBService] LOAD arrow; executed successfully.');
-
+      await Promise.all([
+        c.query("SET memory_limit = '1GB';"),
+        c.query('SET preserve_insertion_order = false;'),
+        c.query('SET enable_progress_bar = false;')
+      ]);
+      const res = await c.query("SELECT name, value FROM duckdb_settings() WHERE name like  '%threads%';");
+      const setttings = this._extractData(res);
+      console.log('[DuckDBService] sys settings: ', setttings);
     } catch (e) {
       console.error('[DuckDBService] Error loading extensions:', e);
       throw e;
@@ -118,8 +136,9 @@ export class DuckDBService {
     console.log(`[DuckDBService] Creating table ${safeTableName} with query: ${query}`);
     const c = await this.db.connect();
     try {
+      let dtime = Date.now();
       await c.query(query);
-      console.log(`[DuckDBService] Table ${safeTableName} created successfully from file '${fileName}'.`);
+      console.log(`[DuckDBService] Table ${safeTableName} created successfully from file '${fileName}',cost ${Date.now() - dtime} ms.`);
     } finally {
       await c.close();
     }

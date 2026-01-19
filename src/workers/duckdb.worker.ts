@@ -30,6 +30,10 @@ self.onmessage = async (event: MessageEvent) => {
             mainModule: resources['duckdb-eh.wasm'],
             mainWorker: resources['duckdb-browser-eh.worker.js'],
           },
+          //coi: {
+          //  mainModule: resources['duckdb-coi.wasm'],
+          //  mainWorker: resources['duckdb-browser-coi.worker.js']
+          //}
         };
 
         const bundle = await duckdb.selectBundle(DUCKDB_BUNDLES);
@@ -38,23 +42,23 @@ self.onmessage = async (event: MessageEvent) => {
         // --- CRITICAL CHANGE: Manually create the Core DuckDB Worker ---
         let coreWorker: Worker | null = null;
         try {
-            console.log('[DB Worker] Manually creating Core DuckDB worker from URL:', bundle.mainWorker);
-            coreWorker = new Worker(bundle.mainWorker as string, { type: 'module' });
-            createdCoreWorker = coreWorker; // track it so shutdown can terminate
-            console.log('[DB Worker] Manually created Core DuckDB worker instance:', coreWorker);
+          console.log('[DB Worker] Manually creating Core DuckDB worker from URL:', bundle.mainWorker);
+          coreWorker = new Worker(bundle.mainWorker as string, { type: 'module' });
+          createdCoreWorker = coreWorker; // track it so shutdown can terminate
+          console.log('[DB Worker] Manually created Core DuckDB worker instance:', coreWorker);
 
-            console.log('[DB Worker] Calling duckDBService.initialize with Core Worker...');
-            // Pass the NEWLY CREATED coreWorker, not `self`
-            await duckDBService.initialize(bundle, coreWorker);
-            console.log('[DB Worker] duckDBService.initialize completed successfully.');
-            result = true;
+          console.log('[DB Worker] Calling duckDBService.initialize with Core Worker...');
+          // Pass the NEWLY CREATED coreWorker, not `self`
+          await duckDBService.initialize(bundle, coreWorker);
+          console.log('[DB Worker] duckDBService.initialize completed successfully.');
+          result = true;
         } catch (initError) {
-            console.error('[DB Worker] Error during duckDBService.initialize:', initError);
-            console.error('[DB Worker] Full error details:', initError instanceof Error ? initError.stack : initError);
-            throw initError;
+          console.error('[DB Worker] Error during duckDBService.initialize:', initError);
+          console.error('[DB Worker] Full error details:', initError instanceof Error ? initError.stack : initError);
+          throw initError;
         } finally {
-            // Do not terminate the coreWorker here, it's needed by the service.
-            // It will be terminated when the service is disposed.
+          // Do not terminate the coreWorker here, it's needed by the service.
+          // It will be terminated when the service is disposed.
         }
         break;
       }
