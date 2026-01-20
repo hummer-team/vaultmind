@@ -14,7 +14,6 @@ export class DuckDBService {
     return DuckDBService.instance;
   }
 
-  // Modified: Accepts the worker instance (which will be the pre-created CoreWorker)
   public async initialize(bundle: duckdb.DuckDBBundle, workerInstance: Worker): Promise<void> {
     if (this.db) {
       console.log('[DuckDBService] DB already initialized, skipping.');
@@ -22,23 +21,9 @@ export class DuckDBService {
     }
 
     console.log('[DuckDBService] Initializing DuckDB...');
-    // const config: duckdb.DuckDBConfig = {
-    //   maximumThreads: 4,
-    //   useDirectIO: true,
-    //   allowUnsignedExtensions: true,
-    //   arrowLosslessConversion: true,
-    //   query: {
-    //     castBigIntToDouble: true,
-    //     castDecimalToDouble: true,
-    //     queryPollingInterval: 10
-    //   }
-    // };
-    // The workerInstance is now the CoreWorker, which is correct for AsyncDuckDB
     this.db = new duckdb.AsyncDuckDB(this.logger, workerInstance);
-
     console.log('[DuckDBService] AsyncDuckDB instance created with CoreWorker instance.');
 
-    // Add a check for SharedArrayBuffer before instantiation
     if (typeof SharedArrayBuffer === 'undefined') {
       const errorMessage = 'SharedArrayBuffer is not available. Cross-origin isolation (COOP/COEP headers) is likely not configured correctly for the environment.';
       console.error(`[DuckDBService] ${errorMessage}`);
@@ -47,19 +32,12 @@ export class DuckDBService {
       console.log('[DuckDBService] SharedArrayBuffer is available. Proceeding with instantiation.');
     }
 
-    // Pre-flight check is no longer needed
-
     console.log('[DuckDBService] Attempting to instantiate DuckDB with bundle...');
     try {
-      console.log('[DuckDBService] Calling this.db.instantiate with mainModule and pthreadWorker URL...');
-
-      // Pass the pthreadWorker URL as a string, as required by the API
       const instantiationPromise = this.db.instantiate(bundle.mainModule, (bundle as any).pthreadWorker);
-
       const timeoutPromise = new Promise<void>((_, reject) =>
         setTimeout(() => reject(new Error('DuckDB instantiation timed out after 120 seconds.')), 120000)
       );
-
       await Promise.race([instantiationPromise, timeoutPromise]);
       console.log('[DuckDBService] this.db.instantiate completed successfully.');
     } catch (e) {
@@ -70,7 +48,12 @@ export class DuckDBService {
     console.log('[DuckDBService] Attempting to connect for loading extensions...');
     const c = await this.db.connect();
     try {
-      // --- CRITICAL CHANGE: Install excel and load arrow ---
+      // --- OPTIMIZATION: Set custom extension repository for COI ---
+      const duckdbVersion = this.db.getVersion();
+      const extensionRepo = `https://extensions.duckdb.org/v${duckdbVersion}/wasm_threads`;
+      console.log(`[DuckDBService] Setting custom extension repository to: ${extensionRepo}`);
+      //await c.query(`SET custom_extension_repository = '${extensionRepo}';`);
+
       console.log('[DuckDBService] Executing INSTALL excel;');
       await c.query('INSTALL excel;');
       await c.query('LOAD excel;');
@@ -80,13 +63,6 @@ export class DuckDBService {
       await c.query('INSTALL arrow from community;');
       await c.query('LOAD arrow;');
       console.log('[DuckDBService] LOAD arrow; executed successfully.');
-
-      // Add explicit log to verify the exact config being applied
-      //console.log("[DuckDBService] Setting system configs: memory_limit='1GB', checkpoint_threshold=0");
-      // await Promise.all([
-      //   c.query("SET memory_limit = '1024MiB';"),
-      //   c.query("SET checkpoint_threshold = 0;"),
-      // ]);
 
       const res = await c.query(
         "SELECT name, value FROM duckdb_settings() WHERE name like  '%threads%' or name like '%memory%';"
@@ -117,24 +93,23 @@ export class DuckDBService {
     const fileExtension = fileName.split('.').pop()?.toLowerCase();
     let query: string;
 
-    // Escape identifiers to be safe
     const safeTableName = `"${tableName.replace(/"/g, '""')}"`;
     const safeFileName = `'${fileName.replace(/'/g, "''")}'`;
 
     if (fileExtension === 'csv') {
-      query = `CREATE OR REPLACE TABLE ${safeTableName} AS SELECT * FROM read_csv_auto(${safeFileName});`;
+      query = `CREATE OR REPLACE TABLE ${safeTableName} AS SELECT * FROM read_csv_auto(${safeFileName}, header=true, sample_size=2048);`;
     } else if (fileExtension === 'xlsx' || fileExtension === 'xls') {
+      // --- OPTIMIZATION: Add parameters to read_xlsx ---
+      const options: string[] = ['header=true', 'sample_size=2048'];
       if (sheetName) {
         const safeSheetName = `'${sheetName.replace(/'/g, "''")}'`;
-        query = `CREATE OR REPLACE TABLE ${safeTableName} AS SELECT * FROM read_xlsx(${safeFileName}, sheet=${safeSheetName});`;
-      } else {
-        // Default to reading the first sheet if no name is provided
-        query = `CREATE OR REPLACE TABLE ${safeTableName} AS SELECT * FROM read_xlsx(${safeFileName});`;
+        options.push(`sheet=${safeSheetName}`);
       }
+      const optionsString = options.join(', ');
+      query = `CREATE OR REPLACE TABLE ${safeTableName} AS SELECT * FROM read_xlsx(${safeFileName}, ${optionsString});`;
     } else if (fileExtension === 'parquet') {
       query = `CREATE OR REPLACE TABLE ${safeTableName} AS SELECT * FROM read_parquet(${safeFileName});`;
-    }
-    else {
+    } else {
       throw new Error(`Unsupported file type for table creation: ${fileExtension}`);
     }
 
@@ -171,9 +146,7 @@ export class DuckDBService {
       const rawResult = await this._queryRaw(conn, sql);
       const data = this._extractData(rawResult);
       const schema = this._extractSchema(rawResult, data);
-
       this._normalizeTimeFields(data, schema);
-
       console.log('[DuckDBService] Standardized query result:', { data, schema });
       return { data, schema };
     } finally {
@@ -181,21 +154,17 @@ export class DuckDBService {
     }
   }
 
-  // Execute the raw query via connection and return the raw result object
   private async _queryRaw(conn: any, sql: string): Promise<any> {
     try {
       return await conn.query(sql);
     } catch (err) {
-      // rethrow but keep stack
       console.error('[DuckDBService] Query failed:', err, 'SQL:', sql);
       throw err;
     }
   }
 
-  // Extracts rows into a plain JS array from various possible result shapes
   private _extractData(result: any): any[] {
     if (!result) return [];
-
     if (typeof result.numRows === 'number' && typeof result.get === 'function') {
       const rowsCount = result.numRows;
       const out = Array.from({ length: rowsCount }, (_, i) => {
@@ -208,19 +177,14 @@ export class DuckDBService {
       });
       return out;
     }
-
     if (Array.isArray(result)) return result;
-
     if (typeof result.toArray === 'function') {
       return result.toArray().map((r: any) => (typeof r?.toJSON === 'function' ? r.toJSON() : r));
     }
-
     if (typeof result === 'object') return [result];
-
     return [];
   }
 
-  // Extracts schema either from result.schema.fields or by inferring from first row
   private _extractSchema(result: any, data: any[]): any[] {
     if (result && result.schema && Array.isArray(result.schema.fields)) {
       return (result.schema.fields as any[]).map((field: any) => ({
@@ -228,35 +192,27 @@ export class DuckDBService {
         type: field && field.type ? String(field.type) : 'unknown',
       }));
     }
-
     if (data.length > 0 && typeof data[0] === 'object' && !Array.isArray(data[0])) {
       return Object.keys(data[0]).map((k) => ({ name: k, type: typeof data[0][k] }));
     }
-
     return [];
   }
 
-  // Normalize time-like fields in-place: convert to ISO strings when possible
   private _normalizeTimeFields(data: any[], schema: any[]): void {
     if (!schema || schema.length === 0 || !data || data.length === 0) return;
-
     const timeFields = schema
       .filter((f) => typeof f.type === 'string' && /(timestamp|date|time)/i.test(f.type))
       .map((f) => ({ name: f.name, type: String(f.type) }));
-
     if (timeFields.length === 0) return;
-
     for (const row of data) {
       for (const fld of timeFields) {
         const key = fld.name;
         const rawVal = row?.[key];
         if (rawVal == null) continue;
-
         if (rawVal instanceof Date) {
           row[key] = rawVal.toISOString();
           continue;
         }
-
         if (typeof rawVal === 'string') {
           const parsed = Date.parse(rawVal);
           if (!isNaN(parsed)) {
@@ -264,7 +220,6 @@ export class DuckDBService {
           }
           continue;
         }
-
         if (typeof rawVal === 'number') {
           const best = this._chooseBestDateFromNumber(rawVal, fld.type);
           if (best) row[key] = best.toISOString();
@@ -273,37 +228,28 @@ export class DuckDBService {
     }
   }
 
-  // Choose best Date candidate from a numeric timestamp by trying multiple units
   private _chooseBestDateFromNumber(raw: number, typeHint?: string): Date | null {
     const now = Date.now();
     const isReasonableYear = (d: Date) => {
       const y = d.getUTCFullYear();
       return y >= 1970 && y <= 3000;
     };
-
     const candidates: { label: string; ms: number }[] = [];
     candidates.push({ label: 'ms', ms: raw });
     candidates.push({ label: 'micro', ms: Math.floor(raw / 1000) });
     candidates.push({ label: 's', ms: raw * 1000 });
-
-    // Excel serial days (e.g., 44500) -> convert to ms: (days - 25569) * 86400000
     if (raw > 2000 && raw < 60000) {
       const excelMs = Math.round((raw - 25569) * 86400000);
       candidates.push({ label: 'excel_days', ms: excelMs });
     }
-
-    // bias by hint
     if (typeHint) {
       const hint = typeHint.toLowerCase();
       if (hint.includes('micro')) candidates.sort((a, b) => (a.label === 'micro' ? -1 : (b.label === 'micro' ? 1 : 0)));
       else if (hint.includes('second')) candidates.sort((a, b) => (a.label === 's' ? -1 : (b.label === 's' ? 1 : 0)));
     }
-
-    // Prefer year 2000-2035 first
     const preferred = candidates
       .map((c) => ({ ...c, date: new Date(c.ms) }))
       .filter((c) => !isNaN(c.date.getTime()) && c.date.getUTCFullYear() >= 2000 && c.date.getUTCFullYear() <= 2035);
-
     const selectBest = (list: { label: string; ms: number; date: Date }[]) => {
       if (list.length === 0) return null as Date | null;
       let best: Date | null = null;
@@ -317,11 +263,8 @@ export class DuckDBService {
       }
       return best;
     };
-
     const pick = selectBest(preferred);
     if (pick) return pick;
-
-    // fallback: reasonable year 1970-3000 and closest to now
     let best: Date | null = null;
     let bestScore = Number.POSITIVE_INFINITY;
     for (const c of candidates) {
@@ -334,14 +277,11 @@ export class DuckDBService {
         best = d;
       }
     }
-
-    // If none reasonable, try raw as ms
     if (!best) {
       const d = new Date(raw);
       if (!isNaN(d.getTime())) return d;
       return null;
     }
-
     return best;
   }
 
@@ -349,13 +289,10 @@ export class DuckDBService {
     return this.executeQuery(`DESCRIBE "${tableName}";`);
   }
 
-  // Graceful shutdown: attempt to terminate/cleanup any internal DB resources.
-  // This method is defensive because the underlying AsyncDuckDB API may not provide a specific shutdown method.
   public async shutdown(): Promise<void> {
     try {
       if (this.db) {
         try {
-          // If AsyncDuckDB exposes a terminate/close API, call it. Use any to avoid type errors.
           const asAny = this.db as any;
           if (typeof asAny.terminate === 'function') {
             await asAny.terminate();
@@ -363,10 +300,8 @@ export class DuckDBService {
             await asAny.close();
           }
         } catch (e) {
-          // ignore errors from underlying runtime-specific shutdown
           console.warn('[DuckDBService] Error while calling underlying shutdown on AsyncDuckDB:', e);
         }
-        // Remove reference so GC can collect
         this.db = null;
       }
     } catch (e) {
@@ -374,4 +309,3 @@ export class DuckDBService {
     }
   }
 }
-
