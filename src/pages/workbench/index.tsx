@@ -50,7 +50,7 @@ const tagStyle: React.CSSProperties = {
 const InitialWelcomeView: React.FC = () => (
   <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100%', gap: '16px' }}>
     <img src="/icons/icon-512.png" alt="Vaultmind Logo" style={{ width: 256, height: 256 }} />
-    <Typography.Title level={3}>Hi, 我是Vaultmind我能帮您：</Typography.Title>
+    <Typography.Title level={3}>Hi, 自然语言即洞察，分析无边界</Typography.Title>
     <Space size={[8, 16]} wrap>
       <Tag style={tagStyle}>快速准确Excel，CSV数据分析</Tag>
       <Tag style={tagStyle}>图表绘制</Tag>

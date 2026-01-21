@@ -48,10 +48,10 @@ export class DuckDBService {
     console.log('[DuckDBService] Attempting to connect for loading extensions...');
     const c = await this.db.connect();
     try {
-      // --- OPTIMIZATION: Set custom extension repository for COI ---
-      const duckdbVersion = this.db.getVersion();
-      const extensionRepo = `https://extensions.duckdb.org/v${duckdbVersion}/wasm_threads`;
-      console.log(`[DuckDBService] Setting custom extension repository to: ${extensionRepo}`);
+      // --- FINAL FIX: getVersion() already includes 'v', so we don't add it manually ---
+      //const duckdbVersion = await this.db.getVersion();
+      //const extensionRepo = `https://extensions.duckdb.org/${duckdbVersion}/wasm_threads`;
+      //console.log(`[DuckDBService] Setting custom extension repository to: ${extensionRepo}`);
       //await c.query(`SET custom_extension_repository = '${extensionRepo}';`);
 
       console.log('[DuckDBService] Executing INSTALL excel;');

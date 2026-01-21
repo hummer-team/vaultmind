@@ -20,26 +20,31 @@ self.onmessage = async (event: MessageEvent) => {
         console.log('[DB Worker] Received DUCKDB_INIT with resources (absolute URLs):', resources);
         if (!resources) throw new Error('Missing resources for DUCKDB_INIT');
 
-        // Resources should now contain absolute URLs from sandbox.ts
+        // --- FIX: Ensure COI bundle is available for selection ---
         const DUCKDB_BUNDLES: any = {
-          // mvp: {
-          //   mainModule: resources['duckdb-mvp.wasm'],
-          //   mainWorker: resources['duckdb-browser-mvp.worker.js'],
-          // },
           eh: {
             mainModule: resources['duckdb-eh.wasm'],
             mainWorker: resources['duckdb-browser-eh.worker.js'],
           },
-          // coi: {
-          //  mainModule: resources['duckdb-coi.wasm'],
-          //  mainWorker: resources['duckdb-browser-coi.worker.js']
-          // }
+          coi: {
+            mainModule: resources['duckdb-coi.wasm'],
+            mainWorker: resources['duckdb-browser-coi.worker.js']
+          }
         };
 
-        const bundle = await duckdb.selectBundle(DUCKDB_BUNDLES);
+        //const bundle = await duckdb.selectBundle(DUCKDB_BUNDLES);
+        // --- FINAL FIX: Manually select the bundle based on environment capabilities ---
+        let bundle: duckdb.DuckDBBundle;
+        if (typeof SharedArrayBuffer !== 'undefined') {
+          console.log('[DB Worker] SharedArrayBuffer is available. Forcing COI bundle.');
+          bundle = DUCKDB_BUNDLES.coi;
+        } else {
+          console.log('[DB Worker] SharedArrayBuffer is not available. Falling back to EH bundle.');
+          bundle = DUCKDB_BUNDLES.eh;
+        }
+        
         (bundle as any).pthreadWorker = resources['duckdb-browser-coi.pthread.worker.js'];
 
-        // --- CRITICAL CHANGE: Manually create the Core DuckDB Worker ---
         let coreWorker: Worker | null = null;
         try {
           console.log('[DB Worker] Manually creating Core DuckDB worker from URL:', bundle.mainWorker);
@@ -48,7 +53,6 @@ self.onmessage = async (event: MessageEvent) => {
           console.log('[DB Worker] Manually created Core DuckDB worker instance:', coreWorker);
 
           console.log('[DB Worker] Calling duckDBService.initialize with Core Worker...');
-          // Pass the NEWLY CREATED coreWorker, not `self`
           await duckDBService.initialize(bundle, coreWorker);
           console.log('[DB Worker] duckDBService.initialize completed successfully.');
           result = true;
@@ -66,9 +70,7 @@ self.onmessage = async (event: MessageEvent) => {
       case 'DUCKDB_SHUTDOWN': {
         console.log('[DB Worker] Received DUCKDB_SHUTDOWN request.');
         try {
-          // Attempt to shutdown the DuckDB service gracefully
           await duckDBService.shutdown();
-          // Terminate the created core worker if we created one
           if (createdCoreWorker) {
             try {
               createdCoreWorker.terminate();
@@ -77,8 +79,6 @@ self.onmessage = async (event: MessageEvent) => {
             }
             createdCoreWorker = null;
           }
-
-          // Inform parent (sandbox) that shutdown succeeded
           self.postMessage({ type: 'DUCKDB_SHUTDOWN_SUCCESS', id, result: true });
         } catch (e: any) {
           console.error('[DB Worker] Error during shutdown:', e);
@@ -107,7 +107,6 @@ self.onmessage = async (event: MessageEvent) => {
         break;
       }
 
-      // --- NEW: Handle file loading ---
       case 'LOAD_FILE': {
         if (!fileName || !buffer || !tableName) {
           throw new Error('Missing fileName, buffer, or tableName for LOAD_FILE');
@@ -120,7 +119,6 @@ self.onmessage = async (event: MessageEvent) => {
       }
 
       case 'DUCKDB_LOAD_DATA': {
-        // This case might become obsolete, but we'll keep it for now.
         if (!tableName || !buffer) throw new Error('Missing tableName or buffer');
         await duckDBService.loadData(tableName, new Uint8Array(buffer));
         result = true;
@@ -143,4 +141,3 @@ self.onmessage = async (event: MessageEvent) => {
 
 console.log('[DB Worker] self.onmessage handler assigned.'); // <-- Added this log
 console.log('[DB Worker] Worker script started and listening for messages.');
-
