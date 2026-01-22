@@ -1,5 +1,7 @@
 import * as duckdb from '@duckdb/duckdb-wasm';
 
+const ARROW_IPC_STREAM_EOS = new Uint8Array([255, 255, 255, 255, 0, 0, 0, 0]);
+
 export class DuckDBService {
   private static instance: DuckDBService;
   private db: duckdb.AsyncDuckDB | null = null;
@@ -21,18 +23,35 @@ export class DuckDBService {
     }
 
     console.log('[DuckDBService] Initializing DuckDB...');
+    this._createDbInstance(workerInstance);
+
+    this._assertSharedArrayBufferAvailable();
+
+    console.log('[DuckDBService] Attempting to instantiate DuckDB with bundle...');
+    await this._instantiateDb(bundle);
+
+    console.log('[DuckDBService] Attempting to connect for loading extensions...');
+    await this._loadExtensions();
+
+    console.log('DuckDB extensions loaded.');
+  }
+
+  private _createDbInstance(workerInstance: Worker): void {
     this.db = new duckdb.AsyncDuckDB(this.logger, workerInstance);
     console.log('[DuckDBService] AsyncDuckDB instance created with CoreWorker instance.');
+  }
 
+  private _assertSharedArrayBufferAvailable(): void {
     if (typeof SharedArrayBuffer === 'undefined') {
       const errorMessage = 'SharedArrayBuffer is not available. Cross-origin isolation (COOP/COEP headers) is likely not configured correctly for the environment.';
       console.error(`[DuckDBService] ${errorMessage}`);
       throw new Error(errorMessage);
-    } else {
-      console.log('[DuckDBService] SharedArrayBuffer is available. Proceeding with instantiation.');
     }
+    console.log('[DuckDBService] SharedArrayBuffer is available. Proceeding with instantiation.');
+  }
 
-    console.log('[DuckDBService] Attempting to instantiate DuckDB with bundle...');
+  private async _instantiateDb(bundle: duckdb.DuckDBBundle): Promise<void> {
+    if (!this.db) throw new Error('DuckDB instance not created.');
     try {
       const instantiationPromise = this.db.instantiate(bundle.mainModule, (bundle as any).pthreadWorker);
       const timeoutPromise = new Promise<void>((_, reject) =>
@@ -44,8 +63,11 @@ export class DuckDBService {
       console.error('[DuckDBService] Error during DuckDB instantiation:', e);
       throw e;
     }
+  }
 
-    console.log('[DuckDBService] Attempting to connect for loading extensions...');
+  private async _loadExtensions(): Promise<void> {
+    if (!this.db) throw new Error('DuckDB not initialized.');
+
     const c = await this.db.connect();
     try {
       console.log('[DuckDBService] Executing INSTALL excel;');
@@ -70,66 +92,122 @@ export class DuckDBService {
       await c.close();
       console.log('[DuckDBService] Connection closed after loading extensions.');
     }
-
-    console.log('DuckDB extensions loaded.');
   }
 
   public async registerFileBuffer(fileName: string, buffer: Uint8Array): Promise<void> {
     if (!this.db) throw new Error('DuckDB not initialized.');
     console.log(`[DuckDBService] Registering file '${fileName}' with buffer size: ${buffer.byteLength}`);
-    await this.db.registerFileBuffer(fileName, buffer);
+    // IMPORTANT:
+    // DuckDB's registerFileBuffer may take ownership of the underlying ArrayBuffer in some runtimes.
+    // To keep the caller's `buffer` safe for subsequent parsing (e.g., JSZip -> Excel -> Arrow pipeline),
+    // always pass a copy into DuckDB.
+    const copy = buffer.slice();
+    await this.db.registerFileBuffer(fileName, copy);
     console.log(`[DuckDBService] File '${fileName}' registered successfully.`);
   }
 
-  public async createTableFromFile(tableName: string, fileName: string, sheetName?: string): Promise<void> {
+  public async createTableFromFile(tableName: string, fileName: string, fileBuffer?: Uint8Array, sheetName?: string): Promise<void> {
     if (!this.db) throw new Error('DuckDB not initialized.');
+    if (!fileName) throw new Error('fileName is required.');
+    if (!tableName) throw new Error('tableName is required.');
+    if (!fileBuffer) throw new Error('File buffer is required for loading.');
 
     const fileExtension = fileName.split('.').pop()?.toLowerCase();
-    let query: string;
+    if (!fileExtension) throw new Error(`Unable to infer file extension from fileName: ${fileName}`);
 
-    const safeTableName = `"${tableName.replace(/"/g, '""')}"`;
-    const safeFileName = `'${fileName.replace(/'/g, "''")}'`;
+    const safeTableName = this._escapeIdentifier(tableName);
+    const safeFileName = this._escapeStringLiteral(fileName);
 
-    if (fileExtension === 'csv') {
-      query = `CREATE OR REPLACE TABLE ${safeTableName} AS SELECT * FROM read_csv_auto(${safeFileName}, header=true, sample_size=2048);`;
-    } else if (fileExtension === 'xlsx' || fileExtension === 'xls') {
-      const options: string[] = ['header=true'];
-      if (sheetName) {
-        const safeSheetName = `'${sheetName.replace(/'/g, "''")}'`;
-        options.push(`sheet=${safeSheetName}`);
-      }
-      const optionsString = options.join(', ');
-      query = `CREATE OR REPLACE TABLE ${safeTableName} AS SELECT * FROM read_xlsx(${safeFileName}, ${optionsString});`;
-    } else if (fileExtension === 'parquet') {
-      query = `CREATE OR REPLACE TABLE ${safeTableName} AS SELECT * FROM read_parquet(${safeFileName});`;
-    } else {
-      throw new Error(`Unsupported file type for table creation: ${fileExtension}`);
-    }
-
-    console.log(`[DuckDBService] Creating table ${safeTableName} with query: ${query}`);
     const c = await this.db.connect();
+    const dtime = Date.now();
+
     try {
-      let dtime = Date.now();
-      await c.query(query);
-      console.log(`[DuckDBService] Table ${safeTableName} created successfully from file '${fileName}',cost ${Date.now() - dtime} ms.`);
+      // Register file buffer so duckdb file readers can access it by file name.
+      await this.registerFileBuffer(fileName, fileBuffer);
+
+      if (fileExtension === 'xlsx') {
+        await this._createTableFromXlsx(c, safeTableName, safeFileName, fileName, sheetName, dtime);
+        return;
+      }
+
+      if (fileExtension === 'csv') {
+        await this._createTableFromCsv(c, safeTableName, safeFileName, fileName, dtime);
+        return;
+      }
+
+      if (fileExtension === 'parquet') {
+        await this._createTableFromParquet(c, safeTableName, safeFileName, fileName, dtime);
+        return;
+      }
+
+      throw new Error(`Unsupported file type: ${fileExtension}`);
     } finally {
       await c.close();
     }
+  }
+
+  private async _createTableFromXlsx(
+    conn: any,
+    safeTableName: string,
+    safeFileName: string,
+    fileName: string,
+    sheetName: string | undefined,
+    startTimeMs: number
+  ): Promise<void> {
+    const sheetArg = sheetName ? `, sheet=${this._escapeStringLiteral(sheetName)}` : '';
+    const sql = `CREATE OR REPLACE TABLE ${safeTableName} AS SELECT * FROM read_xlsx(${safeFileName}${sheetArg});`;
+    console.log(`[DuckDBService] Loading Excel via read_xlsx: ${fileName}${sheetName ? ` (sheet=${sheetName})` : ''}`);
+    await conn.query(sql);
+    console.log(`[DuckDBService] Table ${safeTableName} created via read_xlsx, cost ${Date.now() - startTimeMs} ms.`);
+  }
+
+  private async _createTableFromCsv(
+    conn: any,
+    safeTableName: string,
+    safeFileName: string,
+    fileName: string,
+    startTimeMs: number
+  ): Promise<void> {
+    const sql = `CREATE OR REPLACE TABLE ${safeTableName} AS SELECT * FROM read_csv_auto(${safeFileName}, header=true);`;
+    console.log(`[DuckDBService] Loading CSV via read_csv_auto: ${fileName}`);
+    await conn.query(sql);
+    console.log(`[DuckDBService] Table ${safeTableName} created via read_csv_auto, cost ${Date.now() - startTimeMs} ms.`);
+  }
+
+  private async _createTableFromParquet(
+    conn: any,
+    safeTableName: string,
+    safeFileName: string,
+    fileName: string,
+    startTimeMs: number
+  ): Promise<void> {
+    const sql = `CREATE OR REPLACE TABLE ${safeTableName} AS SELECT * FROM read_parquet(${safeFileName});`;
+    console.log(`[DuckDBService] Loading Parquet via read_parquet: ${fileName}`);
+    await conn.query(sql);
+    console.log(`[DuckDBService] Table ${safeTableName} created via read_parquet, cost ${Date.now() - startTimeMs} ms.`);
+  }
+
+  private _escapeIdentifier(identifier: string): string {
+    return `"${identifier.replace(/"/g, '""')}"`;
+  }
+
+  private _escapeStringLiteral(val: string): string {
+    return `'${val.replace(/'/g, "''")}'`;
   }
 
   public async loadData(tableName: string, buffer: Uint8Array): Promise<void> {
     if (!this.db) throw new Error('DuckDB not initialized.');
 
-    const c = await this.db.connect();
+    const c: any = await this.db.connect();
     try {
-      const prepared = await c.prepare(`CREATE OR REPLACE TABLE "${tableName}" AS SELECT * FROM duckdb_arrow_ipc_scan(?);`);
-      await prepared.query(buffer);
-      await prepared.close();
+      // duckdb-wasm JS API: insert Arrow IPC stream chunks
+      await c.insertArrowFromIPCStream(buffer, { name: tableName, create: true });
+      await c.insertArrowFromIPCStream(ARROW_IPC_STREAM_EOS, { name: tableName });
     } finally {
       await c.close();
     }
 
-    console.log(`Data loaded into table '${tableName}' from Arrow buffer.`);
+    console.log(`Data loaded into table '${tableName}' from Arrow IPC stream.`);
   }
 
   public async executeQuery(sql: string): Promise<{ data: any[]; schema: any[] }> {

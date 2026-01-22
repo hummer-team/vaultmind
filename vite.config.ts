@@ -2,6 +2,7 @@ import {defineConfig, Plugin, UserConfig} from 'vite'
 import react from '@vitejs/plugin-react'
 import {crx} from '@crxjs/vite-plugin' // <-- defineManifest is no longer needed here
 import './src/types/crx-manifest.d.ts';
+import wasm from 'vite-plugin-wasm';
 
 const corsPlugin = (): Plugin => ({
     name: 'cors-plugin',
@@ -83,6 +84,8 @@ export default defineConfig(({command}) => {
     const config: UserConfig = {
         plugins: [
             react(),
+            // Enables WASM imports used by xlsx-wasm-browser (via xlsx-wasm-parser)
+            wasm(),
             crx({manifest}), // <-- Pass the 'any' typed manifest
             corsPlugin(),
         ],

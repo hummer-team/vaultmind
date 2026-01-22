@@ -1,15 +1,17 @@
 console.log('[DB Worker] Script execution started.'); // <-- Added this log
 
 import { DuckDBService } from '../services/duckDBService.ts';
+// xlsx-wasm-parser@0.1.2 does not export init(); parsing functions handle wasm internally.
 import * as duckdb from '@duckdb/duckdb-wasm';
 
 const duckDBService = DuckDBService.getInstance();
 let createdCoreWorker: Worker | null = null; // track core worker created during init so we can terminate on shutdown
 
+
 // resolveURL is no longer needed here as bundle URLs should now be absolute.
 
 self.onmessage = async (event: MessageEvent) => {
-  const { type, id, resources, sql, tableName, buffer, fileName, sheetName } = event.data; // Added sheetName
+  const { type, id, resources, sql, tableName, buffer, file, fileName, sheetName } = event.data; // Added file and adjusted
 
   try {
     let result: any;
@@ -29,18 +31,7 @@ self.onmessage = async (event: MessageEvent) => {
           //   mainWorker: resources['duckdb-browser-coi.worker.js']
           // }
         };
-
         const bundle = await duckdb.selectBundle(DUCKDB_BUNDLES);
-        // --- FINAL FIX: Manually select the bundle based on environment capabilities ---
-        // let bundle: duckdb.DuckDBBundle;
-        // if (typeof SharedArrayBuffer !== 'undefined') {
-        //   console.log('[DB Worker] SharedArrayBuffer is available. Forcing COI bundle.');
-        //   bundle = DUCKDB_BUNDLES.coi;
-        // } else {
-        //   console.log('[DB Worker] SharedArrayBuffer is not available. Falling back to EH bundle.');
-        //   bundle = DUCKDB_BUNDLES.eh;
-        // }
-        
         (bundle as any).pthreadWorker = resources['duckdb-browser-coi.pthread.worker.js'];
 
         let coreWorker: Worker | null = null;
@@ -104,12 +95,28 @@ self.onmessage = async (event: MessageEvent) => {
       }
 
       case 'LOAD_FILE': {
-        if (!fileName || !buffer || !tableName) {
-          throw new Error('Missing fileName, buffer, or tableName for LOAD_FILE');
+        if (!tableName) {
+          throw new Error('Missing tableName for LOAD_FILE');
         }
-        console.log(`[DB Worker] Received LOAD_FILE for '${fileName}'`);
-        await duckDBService.registerFileBuffer(fileName, new Uint8Array(buffer));
-        await duckDBService.createTableFromFile(tableName, fileName, sheetName);
+
+        // Preferred path: receive raw bytes directly
+        if (buffer && fileName) {
+          const u8 = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer as ArrayBuffer);
+          console.log(`[DB Worker] Received LOAD_FILE for '${fileName}' into table '${tableName}', bytes=${u8.byteLength}`);
+          await duckDBService.createTableFromFile(tableName, fileName, u8, sheetName);
+          result = true;
+          break;
+        }
+
+        // Backward compatible path: receive File object
+        if (!file) {
+          throw new Error('Missing file buffer or file object for LOAD_FILE');
+        }
+        const fileBuffer = await (file as File).arrayBuffer();
+        const fileUint8Array = new Uint8Array(fileBuffer);
+
+        console.log(`[DB Worker] Received LOAD_FILE for '${(file as File).name}' into table '${tableName}', bytes=${fileUint8Array.byteLength}`);
+        await duckDBService.createTableFromFile(tableName, (file as File).name, fileUint8Array, sheetName);
         result = true;
         break;
       }

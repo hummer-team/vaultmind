@@ -195,7 +195,7 @@ LLM 模型约束与 Skills 声明
   1. 在 shell 中设置环境变量（macOS / zsh 示例）并运行 dev：
      - export VITE_LLM_MOCK=true
      - export VITE_LLM_API_KEY="<your-key>"
-     - npm run dev
+     - bun run dev
 
 - 新增 Prompt（概要）
   - 文件：`src/prompts/finance.ts`
@@ -217,3 +217,68 @@ LLM 模型约束与 Skills 声明
 - src/pages/workbench/index.tsx
 - src/pages/workbench/components/ChatPanel.tsx
 - src/prompts/ecommerce.ts
+
+---
+
+## 项目技术规范（Coding Standards）
+
+> 本节是项目的强制工程规范汇总（来源：`.github/copilot-instructions.md` + 本项目 Chrome Extension 运行形态）。
+> 之后所有新增/修改代码应优先遵循本节；若与系统级约束冲突，以系统约束为准。
+
+### 1) 技术栈与运行环境
+
+- **Language**: TypeScript 5.x+（strict 模式）
+- **Runtime**: **Bun**（本项目构建/运行命令以 `bun run ...` 为准）
+- **UI**: React 18 + TSX
+- **UI Library**: Ant Design (antd)
+- **Data Engine**: DuckDB-Wasm + Apache Arrow
+- **Build Tooling**: Vite + `@crxjs/vite-plugin`
+- **Testing**: Vitest
+
+### 2) 类型安全（必须遵守）
+
+- **禁止使用 `any`**
+  - 若类型不确定，优先使用 `unknown`，并在使用前通过类型守卫/断言缩小范围。
+- **对象结构优先使用 `interface`**
+  - 联合类型 / 交叉类型使用 `type`。
+- **公共 API / 复杂逻辑必须显式标注返回值类型**
+  - 简单内部逻辑允许 TS 自动推断。
+
+### 3) 编码风格与工程约定
+
+- **模块化**：强制使用 ES Modules（`import`/`export`），禁止 `require`。
+- **异步处理**：统一使用 `async/await` + `try/catch`，禁止 `.then()` 链式调用。
+- **命名规范**
+  - 组件：`PascalCase`
+  - 类：`camelCase`（按项目文档约定执行）
+  - 函数与变量：`camelCase`
+  - 常量：`UPPER_SNAKE_CASE`
+  - 类型与接口名：不加 `I` 前缀
+
+### 4) React/TSX 规范
+
+- 只使用 **函数式组件**（Functional Components），禁止类组件。
+- Hooks 依赖必须完整：`useEffect` 必须声明完整依赖数组。
+- 对昂贵计算使用 `useMemo` / `useCallback`，避免无意义 rerender。
+
+### 5) 文档与注释
+
+- 复杂逻辑函数使用 **TSDoc** 注释。
+- 关键函数至少包含：
+  - `@param`
+  - `@returns`
+  - `@throws`
+
+### 6) 错误处理与返回结构
+
+- 业务异常统一使用自定义 `AppError`（如仓库已定义则必须复用）。
+- 对外返回格式建议遵循：
+  - `{ success: boolean, data: T, error?: string }`
+
+### 7) Chrome Extension / Worker 场景额外约束（强烈建议）
+
+- **CSP**：Chrome Extension 通常不允许 `unsafe-eval`。
+  - 避免在生产路径中引入依赖 `eval`/`new Function` 的库。
+- **内存/性能**：浏览器环境对大文件更敏感。
+  - 对上传文件设置合理大小限制与总量限制；提示应温和、短、可被用户理解。
+- **主线程不阻塞**：大文件解析/重计算尽量放到 Worker 或 DuckDB 内执行。

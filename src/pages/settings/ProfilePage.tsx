@@ -220,17 +220,32 @@ const ProfilePage: React.FC = () => {
   return (
     <div
       style={{
-        background: 'rgba(24, 24, 28, 0.0)', // 或者直接去掉 background，让它跟 Drawer 背景一致
-        minHeight: '100vh',
+        // Let Drawer body be the only page background to avoid "multi-layer" effect.
+        // Keep this container transparent but fully stretched.
+        background: 'transparent',
+        minHeight: '100%',
+        height: '100%',
         padding: '24px',
         maxWidth: '1000px',
         margin: '0 auto',
         borderRadius: 16,
         border: '1px solid rgba(255, 255, 255, 0.08)',
+        boxSizing: 'border-box',
       }}
     >
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
-        <Card>
+        <Card
+          styles={{
+            body: {
+              background: 'rgba(24, 24, 28, 0.98)',
+              borderRadius: 12,
+            },
+          }}
+          style={{
+            background: 'rgba(24, 24, 28, 0.98)',
+            border: '1px solid rgba(255, 255, 255, 0.10)',
+          }}
+        >
           {userProfile && (
             <Form
               form={profileForm}
@@ -266,17 +281,41 @@ const ProfilePage: React.FC = () => {
           )}
         </Card>
 
-        <Card>
-          <Title level={4}>LLM Provider Configurations</Title>
+        <Card
+          styles={{
+            body: {
+              background: 'rgba(24, 24, 28, 0.98)',
+              borderRadius: 12,
+            },
+          }}
+          style={{
+            background: 'rgba(24, 24, 28, 0.98)',
+            border: '1px solid rgba(255, 255, 255, 0.10)',
+          }}
+        >
+          <Title level={4} style={{ color: 'rgba(255,255,255,0.85)' }}>LLM Provider Configurations</Title>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => handleShowModal()} style={{ marginBottom: 16 }}>
             Add New Config
           </Button>
-          <Table
-            columns={columns}
-            dataSource={llmConfigs}
-            rowKey="id"
-            scroll={{ x: 800 }}
-          />
+          <div
+            style={{
+              background: 'rgba(24, 24, 28, 0.98)',
+              borderRadius: 12,
+              overflow: 'hidden',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+            }}
+          >
+            <Table
+              columns={columns}
+              dataSource={llmConfigs}
+              rowKey="id"
+              scroll={{ x: 800 }}
+              style={{ background: 'rgba(24, 24, 28, 0.98)' }}
+              pagination={{
+                position: ['bottomRight'],
+              }}
+            />
+          </div>
         </Card>
       </Space>
 
@@ -286,6 +325,17 @@ const ProfilePage: React.FC = () => {
         onOk={handleLlmConfigSave}
         onCancel={() => setIsModalVisible(false)}
         destroyOnClose
+        modalRender={(modal) => (
+          <div
+            style={{
+              background: 'rgba(24, 24, 28, 0.98)',
+              border: '1px solid rgba(255, 255, 255, 0.10)',
+              borderRadius: 8,
+            }}
+          >
+            {modal}
+          </div>
+        )}
       >
         <Form form={llmForm} layout="vertical" name="llm_config_form">
           <Form.Item name="url" label="URL" rules={[{ required: true, message: 'Please input the API URL!' }]}>

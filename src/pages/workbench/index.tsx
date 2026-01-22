@@ -72,6 +72,8 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
   const { initializeDuckDB, executeQuery, isDBReady, dropTable } = useDuckDB(iframeRef);
   const { loadFileInDuckDB, loadSheetsInDuckDB, getSheetNamesFromExcel, isSandboxReady } = useFileParsing(iframeRef);
 
+  const { userProfile } = useUserStore();
+
   const [uiState, setUiState] = useState<WorkbenchState>('initializing');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [chatError, setChatError] = useState<string | null>(null);
@@ -85,7 +87,22 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
   // persona hint message to show near ChatPanel
   const [personaHint, setPersonaHint] = useState<string | null>(null);
 
-  const { userProfile } = useUserStore();
+  // File size limits (Chrome extension runs in constrained memory environment)
+  const MAX_SINGLE_FILE_BYTES = 200 * 1024 * 1024; // 200MB per file
+  const MAX_TOTAL_FILES_BYTES = 500 * 1024 * 1024; // 500MB total across attachments
+  const [uploadHint, setUploadHint] = useState<string | null>(null);
+  const uploadHintTimerRef = useRef<number | null>(null);
+
+  const showUploadHint = (msg: string) => {
+    setUploadHint(msg);
+    if (uploadHintTimerRef.current !== null) {
+      window.clearTimeout(uploadHintTimerRef.current);
+    }
+    uploadHintTimerRef.current = window.setTimeout(() => {
+      setUploadHint(null);
+      uploadHintTimerRef.current = null;
+    }, 4500);
+  };
 
   const handlePersonaBadgeClick = () => {
     setProfileDrawerVisible(true);
@@ -191,6 +208,21 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
       setChatError(`You can only upload a maximum of ${MAX_FILES} file(s).`);
       return false;
     }
+
+    // Size guardrails
+    const currentTotalBytes = attachments.reduce((sum, a) => sum + (a.file?.size ?? 0), 0);
+    const nextTotalBytes = currentTotalBytes + (file.size ?? 0);
+
+    if (file.size > MAX_SINGLE_FILE_BYTES) {
+      showUploadHint('That file is a bit large for the browser. Please upload a smaller one (≤ 200MB).');
+      return false;
+    }
+
+    if (nextTotalBytes > MAX_TOTAL_FILES_BYTES) {
+      showUploadHint('Total uploads are getting heavy. Please remove a file or upload a smaller one (≤ 500MB total).');
+      return false;
+    }
+
     setChatError(null);
     setUiState('parsing');
 
@@ -555,6 +587,7 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
               setInitialMessage={setCurrentInput}
               // new: inline persona hint for ChatPanel
               personaHint={personaHint}
+              uploadHint={uploadHint}
             />
           </div>
         </div>

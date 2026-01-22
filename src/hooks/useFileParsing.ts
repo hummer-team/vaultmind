@@ -124,16 +124,17 @@ export const useFileParsing = (iframeRef: React.RefObject<HTMLIFrameElement>) =>
 
   const loadFileInDuckDB = useCallback(
     async (file: File, tableName: string, sheetName?: string): Promise<void> => {
-      const arrayBuffer = await file.arrayBuffer();
+      const ab = await file.arrayBuffer();
+      const u8 = new Uint8Array(ab);
       await sendMessageToSandbox<void>(
         {
           type: 'LOAD_FILE',
-          buffer: arrayBuffer,
           fileName: file.name,
-          tableName: tableName,
-          sheetName: sheetName,
+          buffer: u8,
+          tableName,
+          sheetName,
         },
-        [arrayBuffer]
+        [u8.buffer]
       );
     },
     [sendMessageToSandbox]
@@ -141,38 +142,31 @@ export const useFileParsing = (iframeRef: React.RefObject<HTMLIFrameElement>) =>
 
   const loadSheetsInDuckDB = useCallback(
     async (file: File, selectedSheets: string[], existingAttachmentCount: number): Promise<Attachment[]> => {
-      // First, ensure the file is available in the worker's virtual file system.
-      await registerFileWithWorker(file);
-
       const newAttachments: Attachment[] = [];
+      const loadPromises: Promise<void>[] = [];
+
       for (let i = 0; i < selectedSheets.length; i++) {
         const sheetName = selectedSheets[i];
         const tableIndex = existingAttachmentCount + i + 1;
         const tableName = `main_table_${tableIndex}`;
 
-        const newAttachment: Attachment = {
+        newAttachments.push({
           id: uuidv4(),
           file,
           tableName,
           sheetName,
           status: 'uploading',
-        };
-        newAttachments.push(newAttachment);
-
-        // Now, just tell the worker to create a table from the pre-registered file.
-        await sendMessageToSandbox<void>({
-          type: 'CREATE_TABLE_FROM_FILE',
-          fileName: file.name,
-          tableName,
-          sheetName,
         });
+
+        const promise = loadFileInDuckDB(file, tableName, sheetName);
+        loadPromises.push(promise);
       }
 
-      const loadedAttachments = newAttachments.map(att => ({ ...att, status: 'success' as const }));
-      return loadedAttachments;
+      await Promise.all(loadPromises);
+      return newAttachments.map(att => ({ ...att, status: 'success' as const }));
     },
-    [registerFileWithWorker, sendMessageToSandbox]
+    [loadFileInDuckDB]
   );
 
-  return { loadFileInDuckDB, loadSheetsInDuckDB, getSheetNamesFromExcel, isSandboxReady };
+  return {loadFileInDuckDB, loadSheetsInDuckDB, getSheetNamesFromExcel, registerFileWithWorker, isSandboxReady};
 };

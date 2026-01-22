@@ -29,6 +29,8 @@ interface ChatPanelProps {
   setInitialMessage?: (msg: string) => void;
   // new: inline persona hint text
   personaHint?: string | null;
+  // new: upload hint text (light yellow), near action buttons
+  uploadHint?: string | null;
 }
 
 interface GroupedAttachment {
@@ -57,6 +59,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
   initialMessage,
   setInitialMessage,
   personaHint,
+  uploadHint,
 }) => {
   const [form] = Form.useForm();
   const { userProfile } = useUserStore();
@@ -131,7 +134,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
   };
 
   const defaultPlaceholder = [
-    '1. Upload supported formats: Excel, CSV. Max file size: 1GB.',
+    '1. Upload supported formats: Excel, CSV. Max file size: 200MB.',
     '2. Enter your question or analysis instruction.',
     '3. Press Control+Enter to submit.',
   ].join('\n');
@@ -276,13 +279,18 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
               <Upload {...uploadProps}>
                 <Button icon={<PaperClipOutlined />} disabled={isAnalyzing} />
               </Upload>
+              {uploadHint && (
+                <Typography.Text style={{ fontSize: 12, color: '#fadb14' }}>
+                  {uploadHint}
+                </Typography.Text>
+              )}
               {error && (
                 <Typography.Text type="danger" style={{ fontSize: '12px' }}>
                   {error}
                 </Typography.Text>
               )}
             </div>
-            {/* inline persona hint on the right side, light yellow text */}
+            {/* inline hints on the right side */}
             {personaHint && (
               <Typography.Text style={{ fontSize: 12, color: '#fadb14' }}>
                 {personaHint}
