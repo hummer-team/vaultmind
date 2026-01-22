@@ -4,7 +4,7 @@ import { LikeOutlined, DislikeOutlined, RedoOutlined, LikeFilled, DeleteOutlined
 import type { ColumnsType } from 'antd/es/table'; // Import ColumnsType for better typing
 import ReactMarkdown from 'react-markdown';
 import { Attachment } from '../../../types/workbench.types';
-import { exportTableToCsv } from '../../../services/tools/fileTools.ts';
+import { exportTableToCsv } from '../../../utils/fileUtils.ts';
 
 const { Paragraph } = Typography;
 

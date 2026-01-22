@@ -48,12 +48,6 @@ export class DuckDBService {
     console.log('[DuckDBService] Attempting to connect for loading extensions...');
     const c = await this.db.connect();
     try {
-      // --- FINAL FIX: getVersion() already includes 'v', so we don't add it manually ---
-      //const duckdbVersion = await this.db.getVersion();
-      //const extensionRepo = `https://extensions.duckdb.org/${duckdbVersion}/wasm_threads`;
-      //console.log(`[DuckDBService] Setting custom extension repository to: ${extensionRepo}`);
-      //await c.query(`SET custom_extension_repository = '${extensionRepo}';`);
-
       console.log('[DuckDBService] Executing INSTALL excel;');
       await c.query('INSTALL excel;');
       await c.query('LOAD excel;');
@@ -67,8 +61,8 @@ export class DuckDBService {
       const res = await c.query(
         "SELECT name, value FROM duckdb_settings() WHERE name like  '%threads%' or name like '%memory%';"
       );
-      const setttings = this._extractData(res);
-      console.log('[DuckDBService] sys settings: ', setttings);
+      const settings = this._extractData(res);
+      console.log('[DuckDBService] sys settings: ', settings);
     } catch (e) {
       console.error('[DuckDBService] Error loading extensions:', e);
       throw new Error('duckdb init fail.');
@@ -77,7 +71,7 @@ export class DuckDBService {
       console.log('[DuckDBService] Connection closed after loading extensions.');
     }
 
-    console.log('DuckDB initialized and extensions loaded.');
+    console.log('DuckDB extensions loaded.');
   }
 
   public async registerFileBuffer(fileName: string, buffer: Uint8Array): Promise<void> {
@@ -99,8 +93,7 @@ export class DuckDBService {
     if (fileExtension === 'csv') {
       query = `CREATE OR REPLACE TABLE ${safeTableName} AS SELECT * FROM read_csv_auto(${safeFileName}, header=true, sample_size=2048);`;
     } else if (fileExtension === 'xlsx' || fileExtension === 'xls') {
-      // --- OPTIMIZATION: Add parameters to read_xlsx ---
-      const options: string[] = ['header=true', 'sample_size=2048'];
+      const options: string[] = ['header=true'];
       if (sheetName) {
         const safeSheetName = `'${sheetName.replace(/'/g, "''")}'`;
         options.push(`sheet=${safeSheetName}`);

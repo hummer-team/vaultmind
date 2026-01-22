@@ -19,29 +19,27 @@ self.onmessage = async (event: MessageEvent) => {
       case 'DUCKDB_INIT': {
         console.log('[DB Worker] Received DUCKDB_INIT with resources (absolute URLs):', resources);
         if (!resources) throw new Error('Missing resources for DUCKDB_INIT');
-
-        // --- FIX: Ensure COI bundle is available for selection ---
         const DUCKDB_BUNDLES: any = {
           eh: {
             mainModule: resources['duckdb-eh.wasm'],
             mainWorker: resources['duckdb-browser-eh.worker.js'],
           },
-          coi: {
-            mainModule: resources['duckdb-coi.wasm'],
-            mainWorker: resources['duckdb-browser-coi.worker.js']
-          }
+          // coi: {
+          //   mainModule: resources['duckdb-coi.wasm'],
+          //   mainWorker: resources['duckdb-browser-coi.worker.js']
+          // }
         };
 
-        //const bundle = await duckdb.selectBundle(DUCKDB_BUNDLES);
+        const bundle = await duckdb.selectBundle(DUCKDB_BUNDLES);
         // --- FINAL FIX: Manually select the bundle based on environment capabilities ---
-        let bundle: duckdb.DuckDBBundle;
-        if (typeof SharedArrayBuffer !== 'undefined') {
-          console.log('[DB Worker] SharedArrayBuffer is available. Forcing COI bundle.');
-          bundle = DUCKDB_BUNDLES.coi;
-        } else {
-          console.log('[DB Worker] SharedArrayBuffer is not available. Falling back to EH bundle.');
-          bundle = DUCKDB_BUNDLES.eh;
-        }
+        // let bundle: duckdb.DuckDBBundle;
+        // if (typeof SharedArrayBuffer !== 'undefined') {
+        //   console.log('[DB Worker] SharedArrayBuffer is available. Forcing COI bundle.');
+        //   bundle = DUCKDB_BUNDLES.coi;
+        // } else {
+        //   console.log('[DB Worker] SharedArrayBuffer is not available. Falling back to EH bundle.');
+        //   bundle = DUCKDB_BUNDLES.eh;
+        // }
         
         (bundle as any).pthreadWorker = resources['duckdb-browser-coi.pthread.worker.js'];
 
@@ -51,8 +49,6 @@ self.onmessage = async (event: MessageEvent) => {
           coreWorker = new Worker(bundle.mainWorker as string, { type: 'module' });
           createdCoreWorker = coreWorker; // track it so shutdown can terminate
           console.log('[DB Worker] Manually created Core DuckDB worker instance:', coreWorker);
-
-          console.log('[DB Worker] Calling duckDBService.initialize with Core Worker...');
           await duckDBService.initialize(bundle, coreWorker);
           console.log('[DB Worker] duckDBService.initialize completed successfully.');
           result = true;

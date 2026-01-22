@@ -11,7 +11,7 @@ import { useDuckDB } from '../../hooks/useDuckDB';
 import { useFileParsing } from '../../hooks/useFileParsing';
 import { WorkbenchState, Attachment } from '../../types/workbench.types';
 import { settingsService } from '../../services/settingsService.ts';
-import { inferPersonaFromInput } from '../../utils/personaInference';
+import { inferPersonaFromInput } from '../../utils/personaInferenceUtils.ts';
 import { getPersonaById } from '../../config/personas';
 import ProfilePage from "../settings/ProfilePage.tsx";
 import { getPersonaSuggestions } from '../../config/personaSuggestions';

@@ -24,8 +24,8 @@ const escapeCsvField = (value: unknown): string => {
 
 /**
  * Format current time as YYYYMMDDHHmmsss.csv
- * 示例：202201010101010.csv
- * 其中毫秒取 3 位。
+ * Example: 202201010101010.csv
+ * Milliseconds are padded to 3 digits.
  */
 const buildTimestampFileName = (): string => {
     const d = new Date();
@@ -78,4 +78,52 @@ export const exportTableToCsv = (options: ExportTableToCsvOptions): void => {
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
     }
+};
+
+/**
+ * Interface for parsed Excel sheet data.
+ * This is kept here as it's part of the public API of the function.
+ */
+export interface ExcelSheetData {
+    [key: string]: any;
+}
+
+/**
+ * Parses an Excel file (ArrayBuffer) using a Web Worker to prevent UI blocking.
+ *
+ * @param buffer The ArrayBuffer of the Excel file.
+ * @returns A Promise that resolves to an array of objects, where each object is a row.
+ */
+export const parseExcelFile = (buffer: ArrayBuffer): Promise<ExcelSheetData[]> => {
+    return new Promise((resolve, reject) => {
+        // Create a new worker. The path is relative to the current module.
+        // Vite requires this `new URL(...)` syntax for worker instantiation.
+        const worker = new Worker(new URL('./excelWorker.ts', import.meta.url), {
+            type: 'module',
+        });
+
+        // Listen for messages from the worker.
+        worker.onmessage = (event: MessageEvent<{ status: 'success' | 'error'; data?: ExcelSheetData[]; error?: string }>) => {
+            if (event.data.status === 'success') {
+                resolve(event.data.data!);
+            } else {
+                reject(new Error(event.data.error));
+            }
+            // Clean up the worker once the job is done.
+            worker.terminate();
+        };
+
+        // Listen for errors from the worker.
+        worker.onerror = (error) => {
+            reject(new Error(`Worker error: ${error.message}`));
+            // Clean up the worker on error.
+            worker.terminate();
+        };
+
+        // Send the buffer to the worker.
+        // The second argument is an array of "Transferable Objects".
+        // This transfers ownership of the buffer's memory to the worker,
+        // avoiding a costly copy operation.
+        worker.postMessage({ buffer }, [buffer]);
+    });
 };
