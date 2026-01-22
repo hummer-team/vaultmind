@@ -12,16 +12,15 @@ import {
   Modal,
   App,
   Space,
-  Typography,
   Upload,
 } from 'antd';
 import type { UploadProps } from 'antd';
 import { UserOutlined, PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
-import { settingsService, LLMProviderConfig } from '../../services/settingsService.ts';
+import { settingsService, LLMProviderConfig, LlmConfigConflictError } from '../../services/settingsService.ts';
 import { useUserStore } from '../../status/appStatusManager.ts';
 import { personaRegistry } from '../../config/personas';
+import './ProfilePage.css';
 
-const { Title } = Typography;
 
 const getBase64 = (img: File, callback: (url: string) => void) => {
   const reader = new FileReader();
@@ -75,8 +74,6 @@ const ProfilePage: React.FC = () => {
 
       // ✅ keep global userProfile in sync so Workbench / ChatPanel see latest role
       setUserProfile(updatedProfile);
-
-      message.success('Profile updated successfully!');
     } catch (error) {
       message.error('Failed to update profile.');
       console.error('[ProfilePage] Error updating profile:', error);
@@ -96,14 +93,20 @@ const ProfilePage: React.FC = () => {
       let updatedConfigs;
       if (editingConfig) {
         updatedConfigs = await settingsService.updateLlmConfig(editingConfig.id, values);
-        message.success('LLM config updated successfully!');
       } else {
         updatedConfigs = await settingsService.addLlmConfig({ ...values, isEnabled: true });
-        message.success('LLM config added successfully!');
       }
       setLlmConfigs(updatedConfigs);
       setIsModalVisible(false);
     } catch (error) {
+      if (error instanceof LlmConfigConflictError) {
+        Modal.warning({
+          title: 'Only one LLM can be enabled',
+          content: 'Please disable the current enabled config first, then enable another one.',
+          centered: true,
+        });
+        return;
+      }
       message.error('Failed to save LLM config.');
       console.error('[ProfilePage] Error saving LLM config:', error);
     }
@@ -113,8 +116,15 @@ const ProfilePage: React.FC = () => {
     try {
       const updatedConfigs = await settingsService.updateLlmConfig(configId, { isEnabled });
       setLlmConfigs(updatedConfigs);
-      message.success(`LLM config ${isEnabled ? 'enabled' : 'disabled'}.`);
     } catch (error) {
+      if (error instanceof LlmConfigConflictError) {
+        Modal.warning({
+          title: 'Only one LLM can be enabled',
+          content: 'Please disable the current enabled config first, then enable another one.',
+          centered: true,
+        });
+        return;
+      }
       message.error('Failed to toggle LLM config status.');
     }
   };
@@ -123,7 +133,6 @@ const ProfilePage: React.FC = () => {
     try {
       const updatedConfigs = await settingsService.deleteLlmConfig(configId);
       setLlmConfigs(updatedConfigs);
-      message.success('LLM config deleted.');
     } catch (error) {
       message.error('Failed to delete LLM config.');
     }
@@ -217,8 +226,12 @@ const ProfilePage: React.FC = () => {
     ),
   }));
 
+  // LLM Provider Configurations section is enabled by default.
+  const SHOW_LLM_PROVIDER_CONFIGS = true;
+
   return (
     <div
+      className="profile-page"
       style={{
         // Let Drawer body be the only page background to avoid "multi-layer" effect.
         // Keep this container transparent but fully stretched.
@@ -281,71 +294,98 @@ const ProfilePage: React.FC = () => {
           )}
         </Card>
 
-        <Card
-          styles={{
-            body: {
-              background: 'rgba(24, 24, 28, 0.98)',
-              borderRadius: 12,
-            },
-          }}
-          style={{
-            background: 'rgba(24, 24, 28, 0.98)',
-            border: '1px solid rgba(255, 255, 255, 0.10)',
-          }}
-        >
-          <Title level={4} style={{ color: 'rgba(255,255,255,0.85)' }}>LLM Provider Configurations</Title>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => handleShowModal()} style={{ marginBottom: 16 }}>
-            Add New Config
-          </Button>
-          <div
-            style={{
-              background: 'rgba(24, 24, 28, 0.98)',
-              borderRadius: 12,
-              overflow: 'hidden',
-              border: '1px solid rgba(255, 255, 255, 0.08)',
+        {SHOW_LLM_PROVIDER_CONFIGS && (
+          <Card
+            styles={{
+              body: {
+                background: 'rgba(24, 24, 28, 0.98)',
+                borderRadius: 12,
+              },
             }}
-          >
-            <Table
-              columns={columns}
-              dataSource={llmConfigs}
-              rowKey="id"
-              scroll={{ x: 800 }}
-              style={{ background: 'rgba(24, 24, 28, 0.98)' }}
-              pagination={{
-                position: ['bottomRight'],
-              }}
-            />
-          </div>
-        </Card>
-      </Space>
-
-      <Modal
-        title={editingConfig ? 'Edit LLM Config' : 'Add New LLM Config'}
-        open={isModalVisible}
-        onOk={handleLlmConfigSave}
-        onCancel={() => setIsModalVisible(false)}
-        destroyOnClose
-        modalRender={(modal) => (
-          <div
             style={{
               background: 'rgba(24, 24, 28, 0.98)',
               border: '1px solid rgba(255, 255, 255, 0.10)',
-              borderRadius: 8,
             }}
           >
-            {modal}
-          </div>
+            {/* Title removed to reduce visual height and test layout behavior */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => handleShowModal()}>
+                Add New Config
+              </Button>
+              <span style={{ fontSize: 12, color: '#fadb14' }}>
+                Tip: You can only enable one LLM config at a time.
+              </span>
+            </div>
+            <div
+              className="profile-llm-table-scroller"
+              style={{
+                background: 'rgba(24, 24, 28, 0.98)',
+                borderRadius: 12,
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                /* Fixed viewport for table content */
+                height: 220,
+                overflowY: 'auto',
+                overflowX: 'hidden',
+              }}
+            >
+              <Table
+                columns={columns}
+                dataSource={llmConfigs}
+                rowKey="id"
+                scroll={{ x: 800 }}
+                pagination={false}
+                style={{ background: 'rgba(24, 24, 28, 0.98)' }}
+                components={{
+                  table: (props: React.HTMLAttributes<HTMLTableElement>) => (
+                    <table
+                      {...props}
+                      style={{
+                        ...(props.style ?? {}),
+                        background: 'rgba(24, 24, 28, 0.98)',
+                      }}
+                    />
+                  ),
+                }}
+                className="profile-llm-table"
+              />
+              {/* Pagination / empty area background guard */}
+              <div style={{ height: 1, background: 'rgba(24, 24, 28, 0.98)' }} />
+            </div>
+          </Card>
         )}
-      >
-        <Form form={llmForm} layout="vertical" name="llm_config_form">
-          <Form.Item name="url" label="URL" rules={[{ required: true, message: 'Please input the API URL!' }]}>
-            <Input />
-          </Form.Item>
-          <Form.Item name="apiKey" label="API Key" rules={[{ required: true, message: 'Please input the API Key!' }]}>
-            <Input.Password placeholder="Enter your API Key" />
-          </Form.Item>
-        </Form>
-      </Modal>
+
+
+      {/* Only render modal when configs section is enabled */}
+      {SHOW_LLM_PROVIDER_CONFIGS && (
+        <Modal
+          title={editingConfig ? 'Edit LLM Config' : 'Add New LLM Config'}
+          open={isModalVisible}
+          onOk={handleLlmConfigSave}
+          onCancel={() => setIsModalVisible(false)}
+          destroyOnClose
+          modalRender={(modal) => (
+            <div
+              style={{
+                background: 'rgba(24, 24, 28, 0.98)',
+                border: '1px solid rgba(255, 255, 255, 0.10)',
+                borderRadius: 8,
+              }}
+            >
+              {modal}
+            </div>
+          )}
+        >
+          <Form form={llmForm} layout="vertical" name="llm_config_form">
+            <Form.Item name="url" label="URL" rules={[{ required: true, message: 'Please input the API URL!' }]}>
+              <Input />
+            </Form.Item>
+            <Form.Item name="apiKey" label="API Key" rules={[{ required: true, message: 'Please input the API Key!' }]}>
+              <Input.Password placeholder="Enter your API Key" />
+            </Form.Item>
+          </Form>
+        </Modal>
+      )}
+      </Space>
     </div>
   );
 };

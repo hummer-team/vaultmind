@@ -31,6 +31,8 @@ interface ChatPanelProps {
   personaHint?: string | null;
   // new: upload hint text (light yellow), near action buttons
   uploadHint?: string | null;
+  // new: whether LLM config is ready (from Workbench)
+  isLlmReady?: boolean;
 }
 
 interface GroupedAttachment {
@@ -60,6 +62,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
   setInitialMessage,
   personaHint,
   uploadHint,
+  isLlmReady = true,
 }) => {
   const [form] = Form.useForm();
   const { userProfile } = useUserStore();
@@ -127,7 +130,11 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
   const uploadProps: UploadProps = {
     name: 'file',
     multiple: false,
-    beforeUpload: onFileUpload,
+    beforeUpload: async (file) => {
+      // File upload is allowed even when LLM isn't configured.
+      // LLM is only required for AI analysis.
+      return onFileUpload(file);
+    },
     showUploadList: false,
     accept: '.csv,.xls,.xlsx',
     disabled: isAnalyzing,
@@ -279,6 +286,11 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
               <Upload {...uploadProps}>
                 <Button icon={<PaperClipOutlined />} disabled={isAnalyzing} />
               </Upload>
+              {!isLlmReady && (
+                <Typography.Text style={{ fontSize: 12, color: '#fadb14' }}>
+                  Connect an LLM in Settings to enable analysis.
+                </Typography.Text>
+              )}
               {uploadHint && (
                 <Typography.Text style={{ fontSize: 12, color: '#fadb14' }}>
                   {uploadHint}

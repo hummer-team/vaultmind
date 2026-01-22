@@ -33,7 +33,42 @@ const PERSONA_PROMPT_DISMISSED_KEY = 'vaultmind_persona_prompt_dismissed2';
 
 // --- Service Class ---
 
+type LlmConfigChangeListener = () => void;
+
+export class LlmConfigConflictError extends Error {
+  public readonly code = 'LLM_CONFIG_CONFLICT' as const;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'LlmConfigConflictError';
+  }
+}
+
 class SettingsService {
+  private llmConfigListeners: Set<LlmConfigChangeListener> = new Set();
+
+  /**
+   * Subscribe to LLM config changes.
+   * @param listener A callback invoked after LLM configs are added/updated/deleted.
+   * @returns Unsubscribe function.
+   */
+  public subscribeLlmConfigChanges(listener: LlmConfigChangeListener): () => void {
+    this.llmConfigListeners.add(listener);
+    return () => {
+      this.llmConfigListeners.delete(listener);
+    };
+  }
+
+  private emitLlmConfigChanged(): void {
+    for (const listener of this.llmConfigListeners) {
+      try {
+        listener();
+      } catch (error) {
+        console.error('[SettingsService] LLM config change listener failed:', error);
+      }
+    }
+  }
+
   // --- User Profile Methods ---
 
   public async getUserProfile(): Promise<UserProfile> {
@@ -58,10 +93,22 @@ class SettingsService {
 
   public async addLlmConfig(config: Omit<LLMProviderConfig, 'id'>): Promise<LLMProviderConfig[]> {
     const configs = await this.getLlmConfigs();
+
+    // Enforce: only one enabled config at a time
+    if (config.isEnabled) {
+      const alreadyEnabled = configs.find((c) => c.isEnabled);
+      if (alreadyEnabled) {
+        throw new LlmConfigConflictError(
+          'There is already an enabled LLM configuration. Please disable it before enabling another one.'
+        );
+      }
+    }
+
     const newConfig: LLMProviderConfig = { ...config, id: uuidv4() };
     const updatedConfigs = [...configs, newConfig];
     await storageService.setItem(LLM_CONFIGS_KEY, updatedConfigs);
     console.log('[SettingsService] Added new LLM config:', newConfig);
+    this.emitLlmConfigChanged();
     return updatedConfigs;
   }
 
@@ -70,9 +117,21 @@ class SettingsService {
     updates: Partial<Omit<LLMProviderConfig, 'id'>>
   ): Promise<LLMProviderConfig[]> {
     const configs = await this.getLlmConfigs();
+
+    // Enforce: only one enabled config at a time
+    if (updates.isEnabled === true) {
+      const alreadyEnabled = configs.find((c) => c.isEnabled && c.id !== configId);
+      if (alreadyEnabled) {
+        throw new LlmConfigConflictError(
+          'There is already an enabled LLM configuration. Please disable it before enabling another one.'
+        );
+      }
+    }
+
     const updatedConfigs = configs.map(c => (c.id === configId ? { ...c, ...updates } : c));
     await storageService.setItem(LLM_CONFIGS_KEY, updatedConfigs);
     console.log(`[SettingsService] Updated LLM config with ID: ${configId}`, updates);
+    this.emitLlmConfigChanged();
     return updatedConfigs;
   }
 
@@ -81,6 +140,7 @@ class SettingsService {
     const updatedConfigs = configs.filter(c => c.id !== configId);
     await storageService.setItem(LLM_CONFIGS_KEY, updatedConfigs);
     console.log(`[SettingsService] Deleted LLM config with ID: ${configId}`);
+    this.emitLlmConfigChanged();
     return updatedConfigs;
   }
 

@@ -1,0 +1,29 @@
+/* Global UI baseline for Vaultmind.
+ * Goal: prevent "white hairline" showing at top/bottom during overscroll
+ * by ensuring html/body/root always use the dark background.
+ */
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: radial-gradient(circle at top, #2a2a2e, #1e1e20);
+  background-attachment: fixed;
+  overscroll-behavior: none;
+  overflow-x: hidden;
+}
+
+body {
+  -webkit-overflow-scrolling: touch;
+}
+
+#root {
+  height: 100%;
+  background: radial-gradient(circle at top, #2a2a2e, #1e1e20);
+  overflow-x: hidden;
+}

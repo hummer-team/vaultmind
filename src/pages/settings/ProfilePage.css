@@ -1,0 +1,92 @@
+/* ProfilePage dark theme fixes (scoped)
+ * Purpose: ensure Ant Design Table/Pagination/Empty never leaks default white background
+ * when running inside Drawer.
+ */
+
+.profile-page {
+  width: 100%;
+}
+
+/* Table wrapper + content */
+.profile-page :where(.ant-table-wrapper, .ant-table, .ant-table-container, .ant-table-content) {
+  background: rgba(24, 24, 28, 0.98);
+}
+
+/* Header / Body / Cells */
+.profile-page :where(.ant-table-thead > tr > th, .ant-table-tbody > tr > td) {
+  background: rgba(24, 24, 28, 0.98);
+}
+
+/* Pagination area */
+.profile-page :where(.ant-table-pagination, .ant-pagination) {
+  background: rgba(24, 24, 28, 0.98);
+}
+
+/* Empty state */
+.profile-page :where(.ant-empty, .ant-empty-normal, .ant-empty-description) {
+  background: rgba(24, 24, 28, 0.98);
+}
+
+/* Avoid white strip caused by sticky scrollbar area */
+.profile-page :where(.ant-table-body, .ant-table-content) {
+  background: rgba(24, 24, 28, 0.98);
+}
+
+.profile-page :where(.profile-llm-table, .profile-llm-table .ant-table-wrapper, .profile-llm-table .ant-table, .profile-llm-table .ant-table-container, .profile-llm-table .ant-table-content) {
+  background: rgba(24, 24, 28, 0.98);
+}
+
+/* Empty row placeholder (common white leak source) */
+.profile-page :where(.profile-llm-table .ant-table-placeholder, .profile-llm-table .ant-table-placeholder td) {
+  background: rgba(24, 24, 28, 0.98);
+}
+
+/* Dark scrollbar for the LLM configs table container (Chromium/WebKit) */
+.profile-page :where(.profile-llm-table) {
+  scrollbar-color: rgba(255, 255, 255, 0.28) rgba(24, 24, 28, 0.98); /* Firefox */
+  scrollbar-width: thin;
+}
+
+.profile-page :where(.profile-llm-table)::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.profile-page :where(.profile-llm-table)::-webkit-scrollbar-track {
+  background: rgba(24, 24, 28, 0.98);
+}
+
+.profile-page :where(.profile-llm-table)::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.22);
+  border-radius: 10px;
+  border: 2px solid rgba(24, 24, 28, 0.98);
+}
+
+.profile-page :where(.profile-llm-table)::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.32);
+}
+
+/* Also cover the outer fixed-height scroller container (it owns the vertical scrollbar) */
+.profile-page :where(.profile-llm-table-scroller) {
+  scrollbar-color: rgba(255, 255, 255, 0.28) rgba(24, 24, 28, 0.98);
+  scrollbar-width: thin;
+}
+
+.profile-page :where(.profile-llm-table-scroller)::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.profile-page :where(.profile-llm-table-scroller)::-webkit-scrollbar-track {
+  background: rgba(24, 24, 28, 0.98);
+}
+
+.profile-page :where(.profile-llm-table-scroller)::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.22);
+  border-radius: 10px;
+  border: 2px solid rgba(24, 24, 28, 0.98);
+}
+
+.profile-page :where(.profile-llm-table-scroller)::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.32);
+}

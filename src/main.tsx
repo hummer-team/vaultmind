@@ -6,6 +6,7 @@ import AppLayout from './components/layout/AppLayout';
 const Workbench = React.lazy(() => import('./pages/workbench')); // 懒加载 Workbench
 import SubscriptionPage from './pages/subscription/SubscriptionPage';
 import 'antd/dist/reset.css';
+import './global.css';
 import SessionListPage from "./pages/session/SessionListPage.tsx";
 import TemplateListPage from "./pages/asset-center/TemplateListPage.tsx";
 import FeedbackDrawer from './pages/feedback/FeedbackDrawer.tsx';

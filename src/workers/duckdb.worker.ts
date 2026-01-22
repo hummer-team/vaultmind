@@ -88,8 +88,12 @@ self.onmessage = async (event: MessageEvent) => {
         if (!tableName || !fileName) {
           throw new Error('Missing tableName or fileName for CREATE_TABLE_FROM_FILE');
         }
-        console.log(`[DB Worker] Received CREATE_TABLE_FROM_FILE for '${fileName}' into '${tableName}'`);
-        await duckDBService.createTableFromFile(tableName, fileName, sheetName);
+        if (!buffer) {
+          throw new Error('Missing buffer for CREATE_TABLE_FROM_FILE');
+        }
+        const u8 = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer as ArrayBuffer);
+        console.log(`[DB Worker] Received CREATE_TABLE_FROM_FILE for '${fileName}' into '${tableName}', bytes=${u8.byteLength}`);
+        await duckDBService.createTableFromFile(tableName, fileName, u8, sheetName);
         result = true;
         break;
       }

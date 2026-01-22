@@ -11,6 +11,7 @@ import { useDuckDB } from '../../hooks/useDuckDB';
 import { useFileParsing } from '../../hooks/useFileParsing';
 import { WorkbenchState, Attachment } from '../../types/workbench.types';
 import { settingsService } from '../../services/settingsService.ts';
+import { resolveActiveLlmConfig, isValidLlmConfig } from '../../services/llm/runtimeLlmConfig.ts';
 import { inferPersonaFromInput } from '../../utils/personaInferenceUtils.ts';
 import { getPersonaById } from '../../config/personas';
 import ProfilePage from "../settings/ProfilePage.tsx";
@@ -18,7 +19,7 @@ import { getPersonaSuggestions } from '../../config/personaSuggestions';
 import { useUserStore } from '../../status/appStatusManager.ts';
 
 // Configuration
-const MAX_FILES = import.meta.env.VITE_LLM_PROVIDER as number || 1; // Default to 1, can be increased later
+const MAX_FILES = Number(import.meta.env.VITE_MAX_FILES ?? 1); // Default to 1
 
 interface AnalysisRecord {
   id: string;
@@ -136,19 +137,56 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
   const [sheetsToSelect, setSheetsToSelect] = useState<string[] | null>(null);
   const [fileToLoad, setFileToLoad] = useState<File | null>(null);
 
-  const [llmConfig] = useState<LLMConfig>({
+  const [llmConfig, setLlmConfig] = useState<LLMConfig>(() => ({
     provider: import.meta.env.VITE_LLM_PROVIDER as any,
     apiKey: import.meta.env.VITE_LLM_API_KEY as string,
     baseURL: import.meta.env.VITE_LLM_API_URL as string,
     modelName: import.meta.env.VITE_LLM_MODEL_NAME as string,
     mockEnabled: import.meta.env.VITE_LLM_MOCK === 'true',
-  });
+  }));
+
+  const [isLlmReady, setIsLlmReady] = useState<boolean>(isValidLlmConfig(llmConfig));
+
+  useEffect(() => {
+    let isMounted = true;
+    const refresh = async () => {
+      try {
+        const { config, isReady } = await resolveActiveLlmConfig();
+        if (!isMounted || !config) return;
+        setLlmConfig(config);
+        setIsLlmReady(isReady);
+      } catch (error) {
+        console.error('[Workbench] Failed to resolve active LLM config:', error);
+        if (!isMounted) return;
+        setIsLlmReady(false);
+      }
+    };
+
+    // initial load
+    refresh();
+    // subscribe changes
+    const unsubscribe = settingsService.subscribeLlmConfigChanges(() => {
+      refresh();
+    });
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, []);
 
   const agentExecutor = useMemo(() => {
     if (!isDBReady || !executeQuery) return null;
     // Pass the attachments to the executor so it knows the table-to-sheet mapping
     return new AgentExecutor(llmConfig, executeQuery, attachments);
   }, [llmConfig, executeQuery, isDBReady, attachments]);
+
+  const ensureLlmConfigured = (): boolean => {
+    if (isLlmReady) return true;
+    const hint = 'To enable AI analysis, please connect an LLM in Settings first.';
+    showUploadHint(hint);
+    setChatError(hint);
+    return false;
+  };
 
   useEffect(() => {
     if (isSandboxReady) {
@@ -318,6 +356,9 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
   };
 
   const handleStartAnalysis = async (query: string) => {
+    if (!ensureLlmConfigured()) {
+      return;
+    }
     if (!agentExecutor) {
       setChatError('Analysis engine is not ready.');
       return;
@@ -588,6 +629,7 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
               // new: inline persona hint for ChatPanel
               personaHint={personaHint}
               uploadHint={uploadHint}
+              isLlmReady={isLlmReady}
             />
           </div>
         </div>

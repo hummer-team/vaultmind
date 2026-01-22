@@ -6,6 +6,24 @@ console.log('[Sandbox.ts] window.origin:', window.origin); // <-- Added this log
 
 // 声明 duckdbWorker 变量，但不在全局作用域创建实例
 let duckdbWorker: Worker | null = null;
+// Once the worker instance is created and DUCKDB_INIT is posted, it can accept queued messages.
+// The actual DB readiness is handled by the parent via DUCKDB_INIT_SUCCESS.
+let isDuckdbWorkerReady = false;
+const pendingMessages: Array<{ data: any; transferables: Transferable[] }> = [];
+
+const flushPendingMessages = () => {
+    if (!duckdbWorker || !isDuckdbWorkerReady) return;
+    while (pendingMessages.length > 0) {
+        const msg = pendingMessages.shift();
+        if (!msg) break;
+        try {
+            console.log('[Sandbox] Flushing pending message to duckdbWorker:', msg.data?.type);
+            duckdbWorker.postMessage(msg.data, msg.transferables);
+        } catch (e) {
+            console.warn('[Sandbox] Failed to flush pending message:', e);
+        }
+    }
+};
 
 // Helper function to resolve URLs relative to the sandbox's origin
 // This function is now only used for resources other than the main worker script
@@ -132,6 +150,7 @@ window.addEventListener('message', async (event) => {
 
     // Special handling for DUCKDB_INIT to create the Worker and resolve resource URLs
     if (type === 'DUCKDB_INIT') {
+        isDuckdbWorkerReady = false;
         if (!resources)
             throw new Error('Missing resources for DUCKDB_INIT');
         if (!extensionOrigin)
@@ -160,6 +179,12 @@ window.addEventListener('message', async (event) => {
         // 5. Set up the onmessage handler for the newly created worker
         duckdbWorker.onmessage = (workerEvent) => {
             console.log('[Sandbox] Received message from DuckDB Worker:', workerEvent.data.type);
+            // The worker can always accept messages once created.
+            // Flush any queued messages on first response as a safety net.
+            if (!isDuckdbWorkerReady) {
+                isDuckdbWorkerReady = true;
+                flushPendingMessages();
+            }
             if (window.parent && window.parent !== window) {
                 const transfer = workerEvent.data.data instanceof ArrayBuffer ? [workerEvent.data.data] : [];
                 window.parent.postMessage(workerEvent.data, '*', transfer);
@@ -189,16 +214,29 @@ window.addEventListener('message', async (event) => {
         console.log('[Sandbox] Forwarding DUCKDB_INIT message to worker with resources:', resources);
         duckdbWorker.postMessage({ ...event.data, resources: resources }); // resources are already absolute
 
+        // Mark worker ready for accepting messages right after posting init.
+        // This avoids dropping/queue-stalling messages that arrive during init.
+        isDuckdbWorkerReady = true;
+        flushPendingMessages();
+
     } else {
         // --- CRITICAL CHANGE: Forward all other messages directly to the worker ---
         if (!duckdbWorker) {
-            console.error('[Sandbox] DuckDB Worker not initialized yet for message type:', type);
+            // Queue message to avoid dropping it. Parent side is waiting for a response.
+            const transferables = event.data.buffer instanceof ArrayBuffer ? [event.data.buffer] : [];
+            console.warn('[Sandbox] DuckDB Worker not initialized yet, queueing message type:', type);
+            pendingMessages.push({ data: event.data, transferables });
             return;
         }
 
         // Determine if there's a buffer to transfer
         const transferables = event.data.buffer instanceof ArrayBuffer ? [event.data.buffer] : [];
         console.log(`[Sandbox] Forwarding message of type '${type}' to duckdbWorker.`);
+        if (!isDuckdbWorkerReady && type !== 'DUCKDB_INIT') {
+            console.warn('[Sandbox] duckdbWorker not ready yet, queueing message type:', type);
+            pendingMessages.push({ data: event.data, transferables });
+            return;
+        }
         duckdbWorker.postMessage(event.data, transferables);
     }
 });
