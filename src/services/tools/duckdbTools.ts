@@ -1,4 +1,5 @@
-import { ExecuteQueryFunc } from '../llm/agentExecutor.ts'; // 导入类型
+import { ExecuteQueryFunc } from '../llm/agentExecutor.ts';
+import { validateAndNormalizeSql, SqlPolicyError } from './sqlPolicy.ts';
 
 // --- Custom Error Types ---
 export class MissingColumnError extends Error {
@@ -23,21 +24,52 @@ export class CannotAnswerError extends Error {
 /**
  * Executes a given SQL query against the DuckDB database.
  */
-export const sql_query_tool = async (executeQuery: ExecuteQueryFunc, { query }: { query: string }): Promise<any> => {
-  console.log(`[sql_query_tool] Executing query:`, query);
+export const sql_query_tool = async (
+  executeQuery: ExecuteQueryFunc,
+  { query }: { query: string }
+): Promise<unknown> => {
+  // Policy enforcement (M2): allow only read-only SELECT and force LIMIT.
+  // Current allowlist strategy: allow tables matching main_table_.* by default.
+  // In later milestones, this should be passed from session context.
+  const allowedTables = ['main_table', ...Array.from({ length: 50 }, (_, i) => `main_table_${i + 1}`)];
+
+  let normalizedSql = query;
   try {
-    const result = await executeQuery(query);
+    const policy = validateAndNormalizeSql(query, {
+      allowedTables,
+      maxRows: 500,
+    });
+    normalizedSql = policy.normalizedSql;
+    if (policy.warnings.length > 0) {
+      console.log('[sql_query_tool] SQL policy warnings:', policy.warnings);
+    }
+  } catch (err: unknown) {
+    if (err instanceof SqlPolicyError) {
+      console.warn('[sql_query_tool] Policy denied:', err.message);
+      // rethrow for upper layer to categorize as POLICY_DENIED
+      throw err;
+    }
+    throw err;
+  }
+
+  console.log(`[sql_query_tool] Executing query:`, normalizedSql);
+  try {
+    const result = await executeQuery(normalizedSql);
     console.log(`[sql_query_tool] Query result:`, result);
     return result;
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error(`[sql_query_tool] Error executing query:`, error);
-    
-    const columnNotFoundMatch = error.message.match(/Column "([^"]+)" not found/i) || error.message.match(/Unknown column '([^']+)'/i);
-    if (columnNotFoundMatch && columnNotFoundMatch[1]) {
-      const missingColumn = columnNotFoundMatch[1];
-      throw new MissingColumnError(`The column '${missingColumn}' was not found in the table.`, missingColumn);
+
+    if (error instanceof Error) {
+      const columnNotFoundMatch =
+        error.message.match(/Column \"([^\"]+)\" not found/i) ||
+        error.message.match(/Unknown column '([^']+)'/i);
+      if (columnNotFoundMatch && columnNotFoundMatch[1]) {
+        const missingColumn = columnNotFoundMatch[1];
+        throw new MissingColumnError(`The column '${missingColumn}' was not found in the table.`, missingColumn);
+      }
     }
-    
+
     throw error;
   }
 };

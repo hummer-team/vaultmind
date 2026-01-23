@@ -2,8 +2,9 @@
 .idea
 dist
 node_modules
-_.md
+design/_.md
 _2.md
 .env
 .aiassistant
 .github
+design

@@ -11,8 +11,8 @@ const { Paragraph } = Typography;
 interface ResultsDisplayProps {
   query: string;
   status: 'analyzing' | 'resultsReady';
-  data: any[] | { error: string } | null; // Data can be an array of objects, an error object, or null
-  schema: any[] | null; // Schema is an array of objects with { name: string, type: string }
+  data: any[] | { error: string } | null;
+  schema: any[] | null;
   thinkingSteps: { tool: string; params: any, thought?: string } | null;
   onUpvote: (query: string) => void;
   onDownvote: (query: string) => void;
@@ -140,6 +140,37 @@ const formatTimestamp = (value: any): string => {
   return String(value);
 };
 
+/**
+ * Builds a safe schema array for rendering/export.
+ *
+ * If backend schema is missing or invalid, this falls back to inferring columns
+ * from the first row of data.
+ */
+const buildSafeSchema = (schema: unknown, data: unknown): Array<{ name: string; type: string }> => {
+  if (Array.isArray(schema)) {
+    const normalized = schema
+      .map((col: unknown) => {
+        if (typeof col === 'object' && col !== null) {
+          const c = col as { name?: unknown; type?: unknown };
+          const name = typeof c.name === 'string' ? c.name : '';
+          const type = typeof c.type === 'string' ? c.type : 'unknown';
+          return name ? { name, type } : null;
+        }
+        return null;
+      })
+      .filter((x): x is { name: string; type: string } => x !== null);
+
+    if (normalized.length > 0) return normalized;
+  }
+
+  if (Array.isArray(data) && data.length > 0 && typeof data[0] === 'object' && data[0] !== null) {
+    const keys = Object.keys(data[0] as Record<string, unknown>);
+    return keys.map((k) => ({ name: k, type: 'unknown' }));
+  }
+
+  return [];
+};
+
 const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ query, status, data, schema, thinkingSteps, onUpvote, onDownvote, onRetry, onDelete, llmDurationMs, queryDurationMs, onEditQuery, onCopyQuery, attachments }) => {
   const [voted, setVoted] = useState<'up' | null>(null);
   const queryDurationLabel = formatDurationSeconds(queryDurationMs);
@@ -149,28 +180,26 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ query, status, data, sc
     onUpvote(query);
   };
 
+  const safeSchema = buildSafeSchema(schema, data);
+
   const canExport =
     status === 'resultsReady' &&
-    !!schema &&
-    Array.isArray(schema) &&
-    schema.length > 0 &&
+    safeSchema.length > 0 &&
     !!data &&
     Array.isArray(data) &&
     data.length > 0 &&
     !(typeof data === 'object' && 'error' in (data as any));
 
   const handleExportClick = () => {
-    if (!canExport || !schema || !Array.isArray(data)) {
+    if (!canExport || !Array.isArray(data)) {
       message.warning('暂无可导出的数据');
       return;
     }
     try {
       exportTableToCsv({
         data: data as any[],
-        schema: schema.map((c: any) => ({ name: c.name, type: c.type })),
+        schema: safeSchema,
       });
-      // 导出成功的全局 success 提示移除，下载行为已足够明显
-      // message.success('CSV 导出成功');
     } catch (e) {
       console.error('Failed to export CSV:', e);
       message.error('导出失败，请稍后重试');
@@ -374,7 +403,7 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ query, status, data, sc
 
       // Ensure data is an array and schema is present
       const actualData = data as any[];
-      if (!actualData || actualData.length === 0 || !schema || schema.length === 0) {
+      if (!actualData || actualData.length === 0 || safeSchema.length === 0) {
         return (
           <Card {...cardProps}>
             {commonContent}
@@ -387,7 +416,7 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ query, status, data, sc
       }
 
       // Construct columns using schema information
-      const tableColumns: ColumnsType<any> = schema.map((col: any) => {
+      const tableColumns: ColumnsType<any> = safeSchema.map((col) => {
         let renderFunction;
         const typeStr = String(col.type || '').toLowerCase();
         // Match timestamp/date/time types in a case-insensitive and flexible way

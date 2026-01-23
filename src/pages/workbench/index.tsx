@@ -1,10 +1,9 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { theme, Spin, App, Typography, Tag, Space, Drawer } from 'antd';
 import { v4 as uuidv4 } from 'uuid';
 import ChatPanel from './components/ChatPanel';
 import ResultsDisplay from './components/ResultsDisplay';
 import { SheetSelector } from './components/SheetSelector';
-import { AgentExecutor } from '../../services/llm/agentExecutor.ts';
 import { LLMConfig } from '../../services/llm/llmClient.ts';
 import Sandbox from '../../components/layout/Sandbox';
 import { useDuckDB } from '../../hooks/useDuckDB';
@@ -17,6 +16,7 @@ import { getPersonaById } from '../../config/personas';
 import ProfilePage from "../settings/ProfilePage.tsx";
 import { getPersonaSuggestions } from '../../config/personaSuggestions';
 import { useUserStore } from '../../status/appStatusManager.ts';
+import { runAgent } from '../../services/llm/agentRuntime.ts';
 
 // Configuration
 const MAX_FILES = Number(import.meta.env.VITE_MAX_FILES ?? 1); // Default to 1
@@ -173,12 +173,6 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
       unsubscribe();
     };
   }, []);
-
-  const agentExecutor = useMemo(() => {
-    if (!isDBReady || !executeQuery) return null;
-    // Pass the attachments to the executor so it knows the table-to-sheet mapping
-    return new AgentExecutor(llmConfig, executeQuery, attachments);
-  }, [llmConfig, executeQuery, isDBReady, attachments]);
 
   const ensureLlmConfigured = (): boolean => {
     if (isLlmReady) return true;
@@ -359,7 +353,7 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
     if (!ensureLlmConfigured()) {
       return;
     }
-    if (!agentExecutor) {
+    if (!executeQuery) {
       setChatError('Analysis engine is not ready.');
       return;
     }
@@ -389,28 +383,20 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
     setUiState('analyzing');
 
     try {
-      // Get saved persona from profile skills (first skill) or fallback to business_user
       const profilePersonaId = userProfile?.skills?.[0];
-
-      // Try to infer persona from user input (priority)
       const inferredPersonaId = inferPersonaFromInput(query);
-
-      // Determine effective persona with fallback to business_user
       const effectivePersonaId = inferredPersonaId || profilePersonaId || 'business_user';
       const effectivePersona = getPersonaById(effectivePersonaId);
 
-      // Log inference for debugging
       console.log('[Workbench] Persona inference:', {
         profile: profilePersonaId,
         inferred: inferredPersonaId,
         effective: effectivePersonaId
       });
 
-      // Show inline hint in ChatPanel instead of global message.info
       if (inferredPersonaId && inferredPersonaId !== profilePersonaId) {
         const hintText = `检测到你更像「${effectivePersona.displayName}」，已按该角色优化分析。`;
         setPersonaHint(hintText);
-        // reset existing timer if any
         if (personaHintTimerRef.current !== null) {
           window.clearTimeout(personaHintTimerRef.current);
         }
@@ -420,29 +406,75 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
         }, 2000);
       }
 
-      // 使用 useMemo 创建好的 agentExecutor（已带 attachments），只传 persona/context
-      const result: any = await agentExecutor.execute(query, signal, {
-        persona: effectivePersonaId
-      });
+      const runtimeResult = await runAgent(
+        {
+          llmConfig,
+          executeQuery,
+          attachments,
+        },
+        query,
+        signal,
+        {
+          personaId: effectivePersonaId,
+          budget: {
+            maxSteps: 2,
+            maxToolCalls: 2,
+            maxDurationMs: 20_000,
+          },
+        }
+      );
 
-      // 从 result 上读取 LLM 调用耗时与查询耗时（如果 AgentExecutor 未返回则为 undefined）
-      const llmDurationMs: number | undefined = result.llmDurationMs;
-      const queryDurationMs: number | undefined = result.queryDurationMs;
-
-      if (result.cancelled) {
+      if (runtimeResult.cancelled) {
         setAnalysisHistory((prev) => prev.filter((rec) => rec.id !== newRecordId));
         setUiState('fileLoaded');
         return;
       }
+
+      if (runtimeResult.stopReason !== 'SUCCESS') {
+        const buildUserFacingError = (): string => {
+          if (runtimeResult.stopReason === 'NEED_CLARIFICATION') {
+            const raw = runtimeResult.message || '需要你补充一些信息后我才能继续分析。';
+            // Normalize the internal prefix for better UX.
+            return raw.replace(/^Need clarification:\s*/i, '需要你补充信息：\n');
+          }
+          if (runtimeResult.stopReason === 'POLICY_DENIED') {
+            return '出于安全原因，这个请求不允许执行。你可以改为只读查询（SELECT）并限定范围。';
+          }
+          if (runtimeResult.stopReason === 'BUDGET_EXCEEDED') {
+            return '本次分析超时了，请尝试缩小问题范围后重试。';
+          }
+
+          return runtimeResult.message || `分析失败：${runtimeResult.stopReason}`;
+        };
+
+        const msg = buildUserFacingError();
+        setAnalysisHistory((prev) =>
+          prev.map((rec) =>
+            rec.id === newRecordId
+              ? { ...rec, status: 'resultsReady', data: { error: msg }, schema: null }
+              : rec
+          )
+        );
+        return;
+      }
+
+      const resultPayload = runtimeResult.result as { data?: unknown; schema?: unknown } | null;
+      const resultData = Array.isArray(resultPayload?.data) ? (resultPayload?.data as any[]) : null;
+      const resultSchema = Array.isArray(resultPayload?.schema) ? (resultPayload?.schema as any[]) : null;
+
+      const llmDurationMs: number | undefined = runtimeResult.llmDurationMs;
+      const queryDurationMs: number | undefined = runtimeResult.queryDurationMs;
 
       setAnalysisHistory((prev) =>
         prev.map((rec) =>
           rec.id === newRecordId ? {
             ...rec,
             status: 'resultsReady',
-            thinkingSteps: { tool: result.tool, params: result.params, thought: result.thought },
-            data: result.result, // AgentExecutor returns 'result' as the data array
-            schema: result.schema, // AgentExecutor now returns 'schema'
+            thinkingSteps: runtimeResult.tool
+              ? { tool: runtimeResult.tool, params: runtimeResult.params, thought: runtimeResult.thought }
+              : null,
+            data: resultData,
+            schema: resultSchema,
             llmDurationMs,
             queryDurationMs,
           } : rec
