@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import type { SkillContext, SkillDefinition, SkillResult } from '../types';
 import { AgentExecutor } from '../../agentExecutor';
+import { classifyQueryType } from '../queryTypeRouter';
+import { compileWhereClause } from '../core/filterCompiler';
 
 type QueryType =
   | 'kpi_single'
@@ -21,23 +23,6 @@ const classifyResultSchema = z.object({
   /** If clarification is required, ask these questions. */
   clarifyingQuestions: z.array(z.string()).default([]),
 });
-
-const buildClassificationPrompt = (ctx: SkillContext): string => {
-  return [
-    'You are a data analyst. Classify the user request into a query type and propose relevant columns.',
-    'Rules:',
-    '- Output strict JSON only.',
-    '- Prefer existing column names from schemaDigest.',
-    '- If uncertain about time window or key columns, set queryType=clarification_needed and ask concise questions.',
-    '',
-    `userInput: ${ctx.userInput}`,
-    '',
-    'schemaDigest:',
-    ctx.schemaDigest.slice(0, 4000),
-    '',
-    'Return JSON with keys: queryType, timeColumn?, metricColumn?, dimensionColumn?, clarifyingQuestions[].',
-  ].join('\n');
-};
 
 const buildFallbackClarificationMessage = (): SkillResult => {
   return {
@@ -76,41 +61,51 @@ const buildSqlByQueryType = (tableName: string, queryType: QueryType, cols: {
   timeColumn?: string;
   metricColumn?: string;
   dimensionColumn?: string;
-}, maxRows: number): string | null => {
+}, maxRows: number, whereClause?: string): string | null => {
   const limit = Math.max(1, Math.min(500, maxRows));
 
   if (queryType === 'kpi_single') {
-    return `SELECT COUNT(*) AS total_count FROM ${tableName} LIMIT ${limit}`;
+    let sql = `SELECT COUNT(*) AS total_count FROM ${tableName}`;
+    if (whereClause) sql += `\n${whereClause}`;
+    return sql + `\nLIMIT ${limit}`;
   }
 
   if (queryType === 'kpi_grouped') {
     if (!cols.dimensionColumn) return null;
     const dim = safeQuoteIdent(cols.dimensionColumn);
-    return [
+    const parts = [
       `SELECT ${dim} AS dimension, COUNT(*) AS total_count`,
       `FROM ${tableName}`,
+    ];
+    if (whereClause) parts.push(whereClause);
+    parts.push(
       `GROUP BY ${dim}`,
       `ORDER BY total_count DESC`,
-      `LIMIT ${limit}`,
-    ].join('\n');
+      `LIMIT ${limit}`
+    );
+    return parts.join('\n');
   }
 
   if (queryType === 'trend_time') {
     if (!cols.timeColumn) return null;
     const ts = safeQuoteIdent(cols.timeColumn);
-    return [
+    const parts = [
       `SELECT DATE_TRUNC('day', CAST(${ts} AS TIMESTAMP)) AS day, COUNT(*) AS total_count`,
       `FROM ${tableName}`,
+    ];
+    if (whereClause) parts.push(whereClause);
+    parts.push(
       `GROUP BY day`,
       `ORDER BY day`,
-      `LIMIT ${limit}`,
-    ].join('\n');
+      `LIMIT ${limit}`
+    );
+    return parts.join('\n');
   }
 
   if (queryType === 'distribution') {
     if (!cols.metricColumn) return null;
     const x = safeQuoteIdent(cols.metricColumn);
-    return [
+    const parts = [
       `SELECT`,
       `  AVG(${x}) AS mean_value,`,
       `  MEDIAN(${x}) AS median_value,`,
@@ -118,13 +113,16 @@ const buildSqlByQueryType = (tableName: string, queryType: QueryType, cols: {
       `  MIN(${x}) AS min_value,`,
       `  MAX(${x}) AS max_value`,
       `FROM ${tableName}`,
-      `LIMIT ${limit}`,
-    ].join('\n');
+    ];
+    if (whereClause) parts.push(whereClause);
+    return parts.join('\n') + `\nLIMIT ${limit}`;
   }
 
   if (queryType === 'topn') {
     // Fallback: show first rows
-    return `SELECT * FROM ${tableName} LIMIT ${limit}`;
+    let sql = `SELECT * FROM ${tableName}`;
+    if (whereClause) sql += `\n${whereClause}`;
+    return sql + `\nLIMIT ${limit}`;
   }
 
   // comparison: v1 keeps it simple ⇒ fallback to nl2sql.
@@ -135,31 +133,51 @@ export const analysisV1Skill: SkillDefinition = {
   id: 'analysis.v1',
   description: 'General purpose data analysis skill (v1): classify → template SQL → execute → summarize.',
   async run(ctx: SkillContext): Promise<SkillResult> {
-    // B1: analysis.v1 orchestrates but can fall back to existing nl2sql path.
-    // We keep changes minimal: use a lightweight classifier prompt and deterministic SQL templates.
-
     const llmStart = performance.now();
     try {
-      const prompt = buildClassificationPrompt(ctx);
-
       const executor = new AgentExecutor(ctx.runtime.llmConfig, ctx.runtime.executeQuery, ctx.attachments);
 
-      // Reuse executor LLM client by directly calling its LlmClient is not exposed.
-      // Minimal approach: call execute() only when we decide to fall back.
-      // For classification we use a tiny one-shot OpenAI call via executor's llmClient indirectly is not available,
-      // so we do classification heuristically first.
+      // Step 1: Use Query Type Router (Phase 1) instead of heuristic regex
+      // Don't pass llmConfig if mockEnabled (for testing) to avoid real LLM calls
+      const llmConfigForClassification = ctx.runtime.llmConfig.mockEnabled 
+        ? undefined 
+        : ctx.runtime.llmConfig;
+      
+      const classification = await classifyQueryType(
+        ctx.userInput,
+        llmConfigForClassification,
+        ctx.schemaDigest
+      );
+      let queryType = classification.queryType as QueryType;
+      
+      console.log(`[analysis.v1] Query classified as: ${queryType} (confidence: ${classification.confidence})`);
 
-      // Heuristic classification first (no extra LLM call):
-      const input = ctx.userInput;
-      let queryType: QueryType = 'kpi_single';
-      if (/分布|distribution|median|stddev|方差|标准差/i.test(input)) queryType = 'distribution';
-      else if (/趋势|trend|按天|按日|按周|按月/i.test(input)) queryType = 'trend_time';
-      else if (/按.*统计|group by|分组|top\s*\d|Top\s*\d/i.test(input)) queryType = 'kpi_grouped';
-      else if (/对比|比较|A\/B|ab\s*test/i.test(input)) queryType = 'comparison';
+      // Step 2: Get table config and field mapping (Phase 3)
+      const tableName = ctx.activeTable ?? 'main_table_1';
+      const tableConfig = ctx.userSkillConfig?.tables[tableName];
+      const fieldMapping = tableConfig?.fieldMapping;
 
-      // Column guesses
-      const timeColumn = guessTimeColumn(ctx.schemaDigest) ?? undefined;
-      const metricColumn = guessAmountColumn(ctx.schemaDigest) ?? undefined;
+      console.log(`[analysis.v1] Using table: ${tableName}, has config: ${!!tableConfig}`);
+
+      // Step 3: Use Field Mapping with fallback to guessing
+      const timeColumn = fieldMapping?.timeColumn 
+        ?? guessTimeColumn(ctx.schemaDigest) 
+        ?? undefined;
+      
+      const metricColumn = fieldMapping?.amountColumn 
+        ?? guessAmountColumn(ctx.schemaDigest) 
+        ?? undefined;
+
+      // Dimension column: try to use orderIdColumn or userIdColumn as dimension for grouped queries
+      let dimensionColumn: string | undefined;
+      if (queryType === 'kpi_grouped') {
+        dimensionColumn = chooseFirstMatchingColumn(
+          ctx.schemaDigest, 
+          ['渠道', '地区', '类目', 'category', 'channel', 'region']
+        ) ?? undefined;
+      }
+
+      console.log(`[analysis.v1] Columns: time=${timeColumn}, metric=${metricColumn}, dimension=${dimensionColumn}`);
 
       // If time-related query but no time column, ask for clarification.
       if (queryType === 'trend_time' && !timeColumn) {
@@ -171,19 +189,34 @@ export const analysisV1Skill: SkillDefinition = {
         };
       }
 
-      const sql = buildSqlByQueryType('main_table_1', queryType, {
-        timeColumn,
-        metricColumn,
-        // dimension column: try to guess but keep conservative
-        dimensionColumn: chooseFirstMatchingColumn(ctx.schemaDigest, ['渠道', '地区', '类目', 'category', 'channel', 'region']) ?? undefined,
-      }, ctx.maxRows);
+      // Step 4: Compile default filters (Phase 3)
+      const defaultFilters = tableConfig?.defaultFilters;
+      const whereClause = defaultFilters ? compileWhereClause(defaultFilters) : undefined;
+      
+      if (whereClause) {
+        console.log(`[analysis.v1] Applying default filters: ${whereClause}`);
+      }
+
+      // Step 5: Build SQL with where clause
+      const sql = buildSqlByQueryType(
+        tableName,
+        queryType,
+        { timeColumn, metricColumn, dimensionColumn },
+        ctx.maxRows,
+        whereClause
+      );
 
       // If we can't produce a safe template, fall back to nl2sql.
       if (!sql || queryType === 'comparison') {
+        console.log(`[analysis.v1] Falling back to nl2sql for queryType: ${queryType}`);
         // Fallback: existing executor path (nl2sql) already includes rewrite/sql-debug/policy.
         const res = await executor.execute(ctx.userInput, ctx.runtime.signal, {
           persona: ctx.personaId,
           sessionId: ctx.sessionId,
+          // M10.4 Phase 4: Pass user skill config
+          industry: ctx.industry,
+          userSkillConfig: ctx.userSkillConfig,
+          activeTable: ctx.activeTable,
         });
         const llmDurationMs = typeof res.llmDurationMs === 'number' ? res.llmDurationMs : performance.now() - llmStart;
         return {
@@ -199,6 +232,8 @@ export const analysisV1Skill: SkillDefinition = {
         };
       }
 
+      console.log(`[analysis.v1] Executing SQL:\n${sql}`);
+
       const queryStart = performance.now();
       const queryRes = await ctx.runtime.executeQuery(sql);
       const queryDurationMs = performance.now() - queryStart;
@@ -210,7 +245,7 @@ export const analysisV1Skill: SkillDefinition = {
         params: { query: sql },
         result: queryRes,
         schema: queryRes.schema,
-        thought: prompt,
+        thought: `Classified as ${queryType}, executed template SQL`,
         llmDurationMs,
         queryDurationMs,
       };

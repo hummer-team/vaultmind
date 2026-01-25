@@ -168,7 +168,14 @@ export class AgentExecutor {
   public async execute(
     userInput: string,
     signal?: AbortSignal,
-    options?: { persona?: string; sessionId?: string }
+    options?: { 
+      persona?: string; 
+      sessionId?: string;
+      // M10.4 Phase 4: Optional user skill config params
+      industry?: string;
+      userSkillConfig?: import('./skills/types').UserSkillConfig;
+      activeTable?: string;
+    }
   ): Promise<{
     tool: string;
     params: unknown;
@@ -252,12 +259,16 @@ export class AgentExecutor {
       const persona = getPersonaById(personaId);
 
       const role = 'ecommerce';
-      const userPromptTemplate = this.promptManager.getToolSelectionPrompt(
+      const userPromptTemplate = await this.promptManager.getToolSelectionPrompt(
         role,
         userInput,
         effectiveSchemaString,
         this.attachments,
-        persona
+        persona,
+        // M10.4 Phase 4: Pass user skill config params
+        options?.industry,
+        options?.userSkillConfig,
+        options?.activeTable
       );
 
       // --------- 1) Measure LLM decision duration ----------

@@ -31,6 +31,12 @@ export interface SkillContext {
   /** max rows expected in result rendering (UI constraint). */
   maxRows: number;
   runtime: SkillRuntime;
+  /** Industry identifier for loading System Skill Pack (M10.4 Phase 2) */
+  industry?: string;
+  /** User skill configuration (M10.4 Phase 3) */
+  userSkillConfig?: UserSkillConfig;
+  /** Active table name for current analysis (M10.4 Phase 3) */
+  activeTable?: string;
 }
 
 export interface SkillResult {

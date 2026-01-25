@@ -9,6 +9,10 @@ export const nl2sqlV1Skill: SkillDefinition = {
     const res = await executor.execute(ctx.userInput, ctx.runtime.signal, {
       persona: ctx.personaId,
       sessionId: ctx.sessionId,
+      // M10.4 Phase 4: Pass user skill config
+      industry: ctx.industry,
+      userSkillConfig: ctx.userSkillConfig,
+      activeTable: ctx.activeTable,
     });
 
     return {

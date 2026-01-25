@@ -11,6 +11,7 @@ import type { Attachment } from '../../types/workbench.types';
 import type { ExecuteQueryFunc } from './agentExecutor.ts';
 import { ensureSkillsRegistered } from './skills/index.ts';
 import { resolveSkill } from './skills/router.ts';
+import { userSkillService } from '../userSkill/userSkillService';
 
 export type AgentStopReason =
   | 'SUCCESS'
@@ -78,6 +79,25 @@ export const runAgent = async (
   const budget = options?.budget ?? DEFAULT_BUDGET;
   const start = performance.now();
 
+  // M10.4 Phase 4: Load user skill config
+  let userSkillConfig: import('./skills/types').UserSkillConfig | undefined;
+  try {
+    userSkillConfig = await userSkillService.loadUserSkill() ?? undefined;
+    console.log('[agentRuntime] Loaded user skill config:', !!userSkillConfig);
+  } catch (error) {
+    console.warn('[agentRuntime] Failed to load user skill config:', error);
+    // Continue without config (non-blocking)
+  }
+
+  // M10.4 Phase 4: Determine active table (single table for now)
+  const activeTable = runtime.attachments?.[0]?.tableName ?? 'main_table_1';
+  console.log('[agentRuntime] Active table:', activeTable);
+
+  // M10.4 Phase 4: Extract industry from table config
+  const tableConfig = userSkillConfig?.tables[activeTable];
+  const industry = tableConfig?.industry;
+  console.log('[agentRuntime] Industry:', industry, 'Has table config:', !!tableConfig);
+
   // M10: register skills once (lightweight)
   ensureSkillsRegistered();
 
@@ -109,6 +129,10 @@ export const runAgent = async (
         executeQuery: runtime.executeQuery,
         signal: abortController.signal,
       },
+      // M10.4 Phase 4: Pass user skill config
+      industry,
+      userSkillConfig,
+      activeTable,
     });
 
     if (!skill) {
@@ -129,6 +153,10 @@ export const runAgent = async (
         executeQuery: runtime.executeQuery,
         signal: abortController.signal,
       },
+      // M10.4 Phase 4: Pass user skill config
+      industry,
+      userSkillConfig,
+      activeTable,
     });
 
     const elapsed = performance.now() - start;

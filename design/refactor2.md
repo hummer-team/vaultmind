@@ -1151,6 +1151,8 @@ M10.1（需要 userSkillService + zod schema）
 - [ ] 关键词匹配准确率 >= 70%（手动测试 20 条 case）
 - [ ] 用户 skill 优先级高于系统 skill（完全覆盖，不 merge）
 
+#### 问题
+- [ ] 单元测试框架待后续优化（需要 mock LLMClient 初始化逻辑
 #### 依赖
 M10.1（digestBuilder）+ M10.2（promptPackLoader）+ M10.3（userSkillService）
 
