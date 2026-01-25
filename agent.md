@@ -17,11 +17,14 @@
 - 组件（高层次）
   - 前端 UI（React 页面/组件）：`src/pages/workbench` 下的 Workbench、ChatPanel、FileDropzone、ResultsDisplay 等。
   - Hook 层：`src/hooks/useLLMAgent.ts`（对外的 Agent API 层）、`src/hooks/useDuckDB.ts`（与 DuckDB worker 协作）、`src/hooks/useFileParsing.ts`（文件解析与上传）等。
-  - LLM 服务层（agent 逻辑）：
+  - LLM 服务层（Agent 逻辑）:
     - `src/services/llm/llmClient.ts`：LLM API 客户端（目前使用官方 `openai` npm 包）。
     - `src/services/llm/promptManager.ts`：管理 prompt 模板与构建完整的 prompt 文本。
-    - `src/services/llm/agentExecutor.ts`：Agent 的执行器——负责：获取表结构、构建 prompt、调用 LLM、解析 LLM 响应并调用工具。 
-  - Tools：`src/services/tools/duckdbTools.ts`（当前仅 `sql_query_tool`，负责执行 SQL 并返回结果）。
+    - `src/services/llm/agentExecutor.ts`：Agent 的执行器——负责：获取表结构、**通过 Skill 路由器动态选择 Skill**、构建 prompt、调用 LLM、解析 LLM 响应并调用工具。
+  - Skills & Tools:
+    - **Skill 动态路由**: `src/services/llm/skills/router.ts` 会根据用户输入和功能开关，智能地选择使用哪个 `Skill`（例如，是通用的 `nl2sql.v1` 还是更复杂的 `analysis.v1`）。
+    - **Skill 注册表**: `src/services/llm/skills/registry.ts` 维护了一个所有可用 `Skill` 的映射表。
+    - **工具实现**: `src/services/tools/duckdbTools.ts`（当前仅 `sql_query_tool`，负责执行 SQL 并返回结果）。
   - Worker：`src/workers/duckdb.worker.ts`（DuckDB WASM worker，负责初始化 DuckDB、加载文件缓冲区、执行 SQL）。
   - 其他：`src/services/duckDBService.ts`（在 worker/主线程间封装 DuckDB 操作），`src/services/settingsService.ts`、`src/services/storageService.ts`、`src/status/appStatusManager.ts` 等。
 
@@ -153,6 +156,7 @@ LLM 模型约束与 Skills 声明
 - 1. 用户在 UI（ChatPanel）输入请求并提交（或选择 suggestion）。
 - 2. Workbench 的 `handleStartAnalysis` 收集上下文（已上传的文件名列表、table 名称等），并确保 `AgentExecutor` 已就绪（依赖 isDBReady、executeQuery）。
 - 3. `AgentExecutor.execute(userInput)`：
+   - **调用 `resolveSkill(userInput)`**: 首先通过 `Skill Router` 根据用户输入决定使用哪个 `Skill` (例如, `analysis.v1` 或 `nl2sql.v1`)。
    - 调用 `_getAllTableSchemas()`：先查询 `information_schema.tables`（表名以 `main_table_%` 前缀），若为空则回退到 `DESCRIBE main_table`。
    - 使用 `PromptManager.getToolSelectionPrompt('ecommerce', userInput, allTableSchemas)` 构造 prompt。
    - 若 `llmConfig.mockEnabled` 为 true，则采用内置的 mock response；否则通过 `LlmClient.client.chat.completions.create({...})` 向 LLM 发起请求。
@@ -211,6 +215,8 @@ LLM 模型约束与 Skills 声明
 - src/services/llm/LlmClient.ts
 - src/services/llm/promptManager.ts
 - src/services/llm/agentExecutor.ts
+- src/services/llm/skills/router.ts
+- src/services/llm/skills/registry.ts
 - src/services/tools/duckdbTools.ts
 - src/services/duckDBService.ts
 - src/workers/duckdb.worker.ts
