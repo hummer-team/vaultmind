@@ -70,8 +70,10 @@ export const fieldMappingSchema = z.object({
 
 /**
  * Table skill configuration schema.
+ * Industry is table-level to support multi-domain analysis (e.g., ecommerce + finance).
  */
 export const tableSkillConfigSchema = z.object({
+  industry: z.string().min(1).max(50), // Required: determines which Skill Pack to load
   fieldMapping: fieldMappingSchema.optional(),
   defaultFilters: z.array(filterExprSchema).max(20).optional(), // Max 20 default filters
   metrics: z.record(z.string(), metricDefinitionSchema).optional(),
@@ -92,7 +94,6 @@ export const tableSkillConfigSchema = z.object({
  * User skill configuration schema (global).
  */
 export const userSkillConfigSchema = z.object({
-  industryId: z.enum(['ecommerce', 'finance', 'custom']),
   version: z.literal('v1'),
   tables: z.record(z.string(), tableSkillConfigSchema),
 }).refine(

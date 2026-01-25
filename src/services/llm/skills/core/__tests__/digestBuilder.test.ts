@@ -21,6 +21,7 @@ describe('DigestBuilder', () => {
   describe('buildTableSkillDigest', () => {
     it('should build digest with all sections', () => {
       const tableConfig: TableSkillConfig = {
+        industry: 'ecommerce',
         fieldMapping: {
           orderIdColumn: 'order_id',
           userIdColumn: 'user_id',
@@ -52,7 +53,9 @@ describe('DigestBuilder', () => {
     });
 
     it('should handle empty config', () => {
-      const tableConfig: TableSkillConfig = {};
+      const tableConfig: TableSkillConfig = {
+        industry: 'ecommerce',
+      };
       const digest = buildTableSkillDigest('main_table_1', tableConfig);
       expect(digest).toBe('Active table: main_table_1');
     });
@@ -64,6 +67,7 @@ describe('DigestBuilder', () => {
       }
 
       const tableConfig: TableSkillConfig = {
+        industry: 'ecommerce',
         defaultFilters: filters,
       };
 
@@ -87,6 +91,7 @@ describe('DigestBuilder', () => {
       }
 
       const tableConfig: TableSkillConfig = {
+        industry: 'ecommerce',
         metrics,
       };
 
@@ -103,10 +108,10 @@ describe('DigestBuilder', () => {
   describe('buildUserSkillDigest', () => {
     it('should build digest for active table', () => {
       const config: UserSkillConfig = {
-        industryId: 'ecommerce',
         version: 'v1',
         tables: {
           main_table_1: {
+            industry: 'ecommerce',
             fieldMapping: {
               timeColumn: 'order_date',
             },
@@ -126,7 +131,6 @@ describe('DigestBuilder', () => {
 
     it('should return empty for missing table', () => {
       const config: UserSkillConfig = {
-        industryId: 'ecommerce',
         version: 'v1',
         tables: {},
       };
@@ -144,10 +148,10 @@ describe('DigestBuilder', () => {
       }
 
       const config: UserSkillConfig = {
-        industryId: 'ecommerce',
         version: 'v1',
         tables: {
           main_table_1: {
+            industry: 'ecommerce',
             defaultFilters: filters,
           },
         },

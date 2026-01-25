@@ -109,7 +109,6 @@ class UserSkillService {
     // Initialize config if not exists
     if (!config) {
       config = {
-        industryId: 'custom',
         version: 'v1',
         tables: {},
       };
@@ -139,50 +138,27 @@ class UserSkillService {
   }
 
   /**
-   * Reset to default (delete all user skill configuration).
-   * @param tableName Optional table name to reset specific table only
+   * Reset user skill configuration to empty state.
+   * @param tableName Optional: reset specific table only
    */
   public async resetToDefault(tableName?: string): Promise<void> {
     if (tableName) {
-      await this.deleteTableSkill(tableName);
-      return;
-    }
-
-    // Delete entire config
-    await storageService.removeItem(USER_SKILL_CONFIG_KEY);
-    console.log('[UserSkillService] User skill configuration reset to default');
-  }
-
-  /**
-   * Update industry ID in user skill configuration.
-   * @param industryId Industry identifier
-   */
-  public async updateIndustryId(
-    industryId: 'ecommerce' | 'finance' | 'custom'
-  ): Promise<void> {
-    let config = await this.loadUserSkill();
-    
-    if (!config) {
-      config = {
-        industryId,
+      // Reset specific table
+      const config = await this.loadUserSkill();
+      if (config && config.tables[tableName]) {
+        delete config.tables[tableName];
+        await this.saveUserSkill(config);
+        console.log(`[UserSkillService] Table skill reset for: ${tableName}`);
+      }
+    } else {
+      // Reset all
+      const emptyConfig: UserSkillConfig = {
         version: 'v1',
         tables: {},
       };
-    } else {
-      config.industryId = industryId;
+      await this.saveUserSkill(emptyConfig);
+      console.log('[UserSkillService] All user skill configuration reset to default');
     }
-
-    await this.saveUserSkill(config);
-    console.log(`[UserSkillService] Industry ID updated to: ${industryId}`);
-  }
-
-  /**
-   * Get current industry ID.
-   * @returns Industry ID or 'custom' as default
-   */
-  public async getIndustryId(): Promise<'ecommerce' | 'finance' | 'custom'> {
-    const config = await this.loadUserSkill();
-    return config?.industryId || 'custom';
   }
 }
 

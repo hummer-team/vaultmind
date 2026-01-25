@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect } from 'react';
+import React, { useMemo, useEffect, useState } from 'react';
 import { Input, Button, Form, Tag, Space, Upload, FloatButton, Typography, Spin, Tooltip } from 'antd';
 import { PaperClipOutlined, DownOutlined, CloseCircleFilled, StopOutlined, FileExcelOutlined, UserOutlined } from '@ant-design/icons';
 import type { UploadProps } from 'antd';
@@ -6,6 +6,8 @@ import { Attachment } from '../../../types/workbench.types';
 import './ChatPanel.css'; // Import a CSS file for animations
 import { getPersonaById } from '../../../config/personas';
 import { useUserStore } from '../../../status/appStatusManager.ts';
+import { userSkillService } from '../../../services/userSkill/userSkillService';
+import type { TableSkillConfig } from '../../../services/llm/skills/types';
 
 interface ChatPanelProps {
   onSendMessage: (message: string) => void;
@@ -66,6 +68,23 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
 }) => {
   const [form] = Form.useForm();
   const { userProfile } = useUserStore();
+  const [userSkillConfigs, setUserSkillConfigs] = useState<Record<string, TableSkillConfig>>({});
+
+  // Load User Skill configurations
+  useEffect(() => {
+    const loadUserSkills = async () => {
+      try {
+        const config = await userSkillService.loadUserSkill();
+        if (config) {
+          setUserSkillConfigs(config.tables);
+        }
+      } catch (error) {
+        console.error('[ChatPanel] Failed to load user skill configs:', error);
+      }
+    };
+    
+    loadUserSkills();
+  }, []);
 
   // 当 initialMessage 变化时，同步到表单输入框
   useEffect(() => {
@@ -108,6 +127,30 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
   const handleDeleteGroup = (attachmentIds: string[]) => {
     attachmentIds.forEach(id => onDeleteAttachment(id));
   };
+
+  // Generate User Skill status text for attached tables
+  const userSkillStatusText = useMemo(() => {
+    if (groupedAttachments.length === 0) return null;
+    
+    const unconfiguredTables: string[] = [];
+    
+    groupedAttachments.forEach(group => {
+      // Use sheet names as table names if available, otherwise use fileName
+      const tableNames = group.sheetNames.length > 0 ? group.sheetNames : [group.fileName];
+      
+      tableNames.forEach(tableName => {
+        const config = userSkillConfigs[tableName];
+        if (!config) {
+          unconfiguredTables.push(tableName);
+        }
+      });
+    });
+    
+    // Only show warning for unconfigured tables
+    if (unconfiguredTables.length === 0) return null;
+    
+    return `⚠ Not configured: ${unconfiguredTables.join(', ')}`;
+  }, [groupedAttachments, userSkillConfigs]);
 
   const handleFinish = (values: { message: string }) => {
     if (!values.message || !values.message.trim()) {
@@ -289,6 +332,11 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
               {!isLlmReady && (
                 <Typography.Text style={{ fontSize: 12, color: '#fadb14' }}>
                   Connect an LLM in Settings to enable analysis.
+                </Typography.Text>
+              )}
+              {userSkillStatusText && (
+                <Typography.Text style={{ fontSize: 12, color: '#d4b106' }}>
+                  {userSkillStatusText}
                 </Typography.Text>
               )}
               {uploadHint && (

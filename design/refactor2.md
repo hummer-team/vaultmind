@@ -1041,9 +1041,9 @@ User Skill Digest 示例（给 LLM 看）：
 - **预留远程服务端获取接口**：`loadFromRemote(industryId, version): Promise<PromptPack>`（当前返回 mock，不实际调用）
 
 #### 验收标准
-- [ ] `ecommerce_basic_skill.v1.md` 内容完整（术语映射 + 分析范式 + 输出结构）
-- [ ] `PromptManager` 能正确注入 System Pack
-- [ ] Prompt Pack 长度 <= 2000 chars（systemSkillPackBudgetChars）
+- [x] `ecommerce_basic_skill.v1.md` 内容完整（术语映射 + 分析范式 + 输出结构）
+- [x] `PromptManager` 能正确注入 System Pack
+- [x] Prompt Pack 长度 <= 2000 chars（systemSkillPackBudgetChars）
 - [ ] 预留远程加载接口（返回 mock 数据即可）
 - [ ] 新增行业只需添加 md + metrics.ts，core 不改动（Case U9）
 

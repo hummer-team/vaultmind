@@ -155,6 +155,7 @@ describe('UserSkillSchema - Security Validation', () => {
   describe('tableSkillConfigSchema', () => {
     it('should accept valid config', () => {
       const valid = {
+        industry: 'ecommerce',
         fieldMapping: {
           orderIdColumn: 'order_id',
           timeColumn: 'order_date',
@@ -178,6 +179,7 @@ describe('UserSkillSchema - Security Validation', () => {
 
     it('should reject excessive default filters', () => {
       const invalid = {
+        industry: 'ecommerce',
         defaultFilters: Array(21).fill({
           column: 'col',
           op: '=',
@@ -195,7 +197,7 @@ describe('UserSkillSchema - Security Validation', () => {
           aggregation: 'count',
         };
       }
-      const invalid = { metrics };
+      const invalid = { industry: 'ecommerce', metrics };
       expect(() => tableSkillConfigSchema.parse(invalid)).toThrow();
     });
   });
@@ -203,10 +205,10 @@ describe('UserSkillSchema - Security Validation', () => {
   describe('userSkillConfigSchema', () => {
     it('should accept valid config', () => {
       const valid = {
-        industryId: 'ecommerce',
         version: 'v1',
         tables: {
           main_table_1: {
+            industry: 'ecommerce',
             fieldMapping: {
               timeColumn: 'order_date',
             },
@@ -218,7 +220,6 @@ describe('UserSkillSchema - Security Validation', () => {
 
     it('should reject invalid version', () => {
       const invalid = {
-        industryId: 'ecommerce',
         version: 'v2', // Only v1 supported
         tables: {},
       };
@@ -228,10 +229,9 @@ describe('UserSkillSchema - Security Validation', () => {
     it('should reject excessive tables', () => {
       const tables: Record<string, unknown> = {};
       for (let i = 0; i < 11; i++) {
-        tables[`table${i}`] = {};
+        tables[`table${i}`] = { industry: 'ecommerce' };
       }
       const invalid = {
-        industryId: 'ecommerce',
         version: 'v1',
         tables,
       };

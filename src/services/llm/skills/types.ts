@@ -104,8 +104,10 @@ export interface FieldMapping {
 
 /**
  * User skill configuration for a single table.
+ * Industry is table-level to support multi-domain analysis.
  */
 export interface TableSkillConfig {
+  industry: string; // e.g., 'ecommerce', 'finance', 'retail'
   fieldMapping?: FieldMapping;
   defaultFilters?: FilterExpr[];
   metrics?: Record<string, MetricDefinition>; // key: metric name, e.g., "gmv"
@@ -116,7 +118,6 @@ export interface TableSkillConfig {
  * Indexed by table name from attachments snapshot.
  */
 export interface UserSkillConfig {
-  industryId: 'ecommerce' | 'finance' | 'custom';
   version: 'v1';
   tables: Record<string, TableSkillConfig>; // key: tableName, e.g., "main_table_1"
 }
