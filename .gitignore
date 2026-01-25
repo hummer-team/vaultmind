@@ -7,5 +7,10 @@ _2.md
 .env
 .aiassistant
 .github
-design
+design/img
+design/_.md
+design/refactor.md
+design/crab.data.md
+design/m7-regression.md
 .gemini
+/GEMINI.md
