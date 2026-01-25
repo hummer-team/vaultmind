@@ -32,6 +32,52 @@ import './ProfilePage.css';
 
 const { Panel } = Collapse;
 
+// M10.5 Phase 4: System Metrics definitions by industry
+interface SystemMetric {
+  key: string;
+  label: string;
+  formula: string;
+}
+
+const getSystemMetrics = (industry?: string): SystemMetric[] => {
+  // Default metrics for all industries
+  const defaultMetrics: SystemMetric[] = [
+    { key: 'total_count', label: 'Total Count', formula: 'COUNT(*)' },
+    { key: 'unique_count', label: 'Unique Count', formula: 'COUNT(DISTINCT <column>)' },
+  ];
+
+  // Industry-specific metrics
+  if (industry === 'ecommerce') {
+    return [
+      { key: 'gmv', label: 'Gross Merchandise Value', formula: 'SUM(amount)' },
+      { key: 'order_count', label: 'Order Count', formula: 'COUNT(*)' },
+      { key: 'avg_order_value', label: 'Average Order Value', formula: 'AVG(amount)' },
+      { key: 'unique_users', label: 'Unique Users', formula: 'COUNT(DISTINCT user_id)' },
+      { key: 'paid_order_count', label: 'Paid Order Count', formula: 'COUNT(*) WHERE status = \'paid\'' },
+      { key: 'conversion_rate', label: 'Conversion Rate', formula: '(paid_orders / total_orders) * 100' },
+    ];
+  }
+
+  if (industry === 'finance') {
+    return [
+      { key: 'total_amount', label: 'Total Amount', formula: 'SUM(amount)' },
+      { key: 'transaction_count', label: 'Transaction Count', formula: 'COUNT(*)' },
+      { key: 'avg_transaction', label: 'Average Transaction', formula: 'AVG(amount)' },
+      { key: 'unique_accounts', label: 'Unique Accounts', formula: 'COUNT(DISTINCT account_id)' },
+    ];
+  }
+
+  if (industry === 'retail') {
+    return [
+      { key: 'total_sales', label: 'Total Sales', formula: 'SUM(amount)' },
+      { key: 'transaction_count', label: 'Transaction Count', formula: 'COUNT(*)' },
+      { key: 'avg_basket_size', label: 'Average Basket Size', formula: 'AVG(amount)' },
+      { key: 'unique_customers', label: 'Unique Customers', formula: 'COUNT(DISTINCT customer_id)' },
+    ];
+  }
+
+  return defaultMetrics;
+};
 
 const getBase64 = (img: File, callback: (url: string) => void) => {
   const reader = new FileReader();
@@ -1092,6 +1138,47 @@ const ProfilePage: React.FC = () => {
                 </Panel>
                 <Panel header="Metrics" key="metrics">
                   <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                    {/* M10.5 Phase 4: System Metrics Display */}
+                    <div>
+                      <Typography.Text strong style={{ marginBottom: 8, display: 'block' }}>
+                        系统内置指标 (System Metrics)
+                      </Typography.Text>
+                      <Alert
+                        message="只读"
+                        description="以下为系统根据行业提供的标准指标，可在下方添加自定义指标覆盖"
+                        type="info"
+                        showIcon
+                        style={{ marginBottom: 12 }}
+                      />
+                      <List
+                        size="small"
+                        bordered
+                        dataSource={getSystemMetrics(currentTableConfig?.industry)}
+                        renderItem={(metric) => {
+                          // Check if user has overridden this metric
+                          const isOverridden = currentTableConfig?.metrics?.[metric.key] !== undefined;
+                          
+                          return (
+                            <List.Item>
+                              <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                                <Space size="small">
+                                  <Tag color="cyan">{metric.key}</Tag>
+                                  <Typography.Text>{metric.label}</Typography.Text>
+                                  {isOverridden && (
+                                    <Tag color="orange">用户覆盖</Tag>
+                                  )}
+                                </Space>
+                                <Typography.Text type="secondary" style={{ fontSize: '12px' }}>
+                                  {metric.formula}
+                                </Typography.Text>
+                              </Space>
+                            </List.Item>
+                          );
+                        }}
+                        style={{ background: 'rgba(255, 255, 255, 0.02)' }}
+                      />
+                    </div>
+
                     <div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                         <Typography.Text strong>Custom Metrics (L0)</Typography.Text>

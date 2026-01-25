@@ -49,6 +49,32 @@ export interface AgentRunResult {
   llmDurationMs?: number;
   queryDurationMs?: number;
   cancelled?: boolean;
+  // M10.5: Skill execution metadata
+  skillName?: string;
+  industry?: string;
+  userSkillApplied?: boolean;
+  userSkillDigestChars?: number;
+  activeTable?: string;
+  // M10.5 Phase 3: Effective settings for transparency
+  effectiveSettings?: {
+    tableName: string;
+    fieldMapping?: {
+      timeColumn?: string;
+      amountColumn?: string;
+      orderIdColumn?: string;
+      userIdColumn?: string;
+    };
+    defaultFilters?: Array<{
+      column: string;
+      op: string;
+      value: unknown;
+    }>;
+    metrics?: Record<string, {
+      label: string;
+      aggregation: string;
+      column?: string;
+    }>;
+  };
 }
 
 export interface AgentRuntimeConfig {
@@ -97,6 +123,29 @@ export const runAgent = async (
   const tableConfig = userSkillConfig?.tables[activeTable];
   const industry = tableConfig?.industry;
   console.log('[agentRuntime] Industry:', industry, 'Has table config:', !!tableConfig);
+
+  // M10.5 Phase 1: Calculate user skill digest chars
+  const userSkillApplied = !!userSkillConfig && !!tableConfig;
+  let userSkillDigestChars: number | undefined;
+  if (userSkillApplied) {
+    try {
+      const { buildUserSkillDigest } = await import('./skills/core/digestBuilder');
+      const digest = buildUserSkillDigest(userSkillConfig ?? null, activeTable);
+      userSkillDigestChars = digest.length;
+      console.log('[agentRuntime] User skill digest chars:', userSkillDigestChars);
+    } catch (error) {
+      console.warn('[agentRuntime] Failed to calculate digest chars:', error);
+    }
+  }
+
+  // M10.5 Phase 3: Build effective settings for transparency
+  const effectiveSettings = tableConfig ? {
+    tableName: activeTable,
+    fieldMapping: tableConfig.fieldMapping,
+    defaultFilters: tableConfig.defaultFilters,
+    metrics: tableConfig.metrics,
+  } : undefined;
+  console.log('[agentRuntime] Effective settings prepared:', !!effectiveSettings);
 
   // M10: register skills once (lightweight)
   ensureSkillsRegistered();
@@ -165,7 +214,21 @@ export const runAgent = async (
     }
 
     if (result.cancelled) {
-      return { stopReason: 'CANCELLED', cancelled: true, message: 'Cancelled.', llmDurationMs: result.llmDurationMs, queryDurationMs: result.queryDurationMs };
+      return { 
+        stopReason: 'CANCELLED', 
+        cancelled: true, 
+        message: 'Cancelled.', 
+        llmDurationMs: result.llmDurationMs, 
+        queryDurationMs: result.queryDurationMs,
+        // M10.5 Phase 1: Add metadata even on cancellation
+        skillName: skill.id,
+        industry,
+        userSkillApplied,
+        userSkillDigestChars,
+        activeTable,
+        // M10.5 Phase 3: Add effective settings
+        effectiveSettings,
+      };
     }
 
     if (result.stopReason !== 'SUCCESS') {
@@ -175,6 +238,14 @@ export const runAgent = async (
         llmDurationMs: result.llmDurationMs,
         queryDurationMs: result.queryDurationMs,
         thought: skillTag,
+        // M10.5 Phase 1: Add metadata
+        skillName: skill.id,
+        industry,
+        userSkillApplied,
+        userSkillDigestChars,
+        activeTable,
+        // M10.5 Phase 3: Add effective settings
+        effectiveSettings,
       };
     }
 
@@ -188,6 +259,14 @@ export const runAgent = async (
       llmDurationMs: result.llmDurationMs,
       queryDurationMs: result.queryDurationMs,
       cancelled: result.cancelled,
+      // M10.5 Phase 1: Add metadata
+      skillName: skill.id,
+      industry,
+      userSkillApplied,
+      userSkillDigestChars,
+      activeTable,
+      // M10.5 Phase 3: Add effective settings
+      effectiveSettings,
     };
   } catch (err: unknown) {
     const maybeWithTiming = err as { llmDurationMs?: unknown; queryDurationMs?: unknown };

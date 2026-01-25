@@ -24,7 +24,37 @@ const MAX_FILES = Number(import.meta.env.VITE_MAX_FILES ?? 1); // Default to 1
 interface AnalysisRecord {
   id: string;
   query: string;
-  thinkingSteps: { tool: string; params: any; thought?: string } | null;
+  thinkingSteps: { 
+    tool: string; 
+    params: any; 
+    thought?: string;
+    // M10.5: Skill execution metadata
+    skillName?: string;
+    industry?: string;
+    userSkillApplied?: boolean;
+    userSkillDigestChars?: number;
+    activeTable?: string;
+    // M10.5 Phase 3: Effective settings
+    effectiveSettings?: {
+      tableName: string;
+      fieldMapping?: {
+        timeColumn?: string;
+        amountColumn?: string;
+        orderIdColumn?: string;
+        userIdColumn?: string;
+      };
+      defaultFilters?: Array<{
+        column: string;
+        op: string;
+        value: unknown;
+      }>;
+      metrics?: Record<string, {
+        label: string;
+        aggregation: string;
+        column?: string;
+      }>;
+    };
+  } | null;
   data: any[] | { error: string } | null; // Changed from 'result' to 'data' and explicitly typed as array of any, now includes error object
   schema: any[] | null; // Added schema to the record
   status: 'analyzing' | 'resultsReady';
@@ -478,7 +508,19 @@ const Workbench: React.FC<WorkbenchProps> = ({ setIsFeedbackDrawerOpen }) => {
             ...rec,
             status: 'resultsReady',
             thinkingSteps: runtimeResult.tool
-              ? { tool: runtimeResult.tool, params: runtimeResult.params, thought: runtimeResult.thought }
+              ? { 
+                  tool: runtimeResult.tool, 
+                  params: runtimeResult.params, 
+                  thought: runtimeResult.thought,
+                  // M10.5 Phase 1: Add metadata to thinkingSteps
+                  skillName: runtimeResult.skillName,
+                  industry: runtimeResult.industry,
+                  userSkillApplied: runtimeResult.userSkillApplied,
+                  userSkillDigestChars: runtimeResult.userSkillDigestChars,
+                  activeTable: runtimeResult.activeTable,
+                  // M10.5 Phase 3: Add effective settings
+                  effectiveSettings: runtimeResult.effectiveSettings,
+                }
               : null,
             data: resultData,
             schema: resultSchema,

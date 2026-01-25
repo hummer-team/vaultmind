@@ -38,7 +38,37 @@ interface ResultsDisplayProps {
   status: 'analyzing' | 'resultsReady';
   data: any[] | { error: string } | null;
   schema: any[] | null;
-  thinkingSteps: { tool: string; params: any, thought?: string } | null;
+  thinkingSteps: { 
+    tool: string; 
+    params: any; 
+    thought?: string;
+    // M10.5: Skill execution metadata
+    skillName?: string;
+    industry?: string;
+    userSkillApplied?: boolean;
+    userSkillDigestChars?: number;
+    activeTable?: string;
+    // M10.5 Phase 3: Effective settings
+    effectiveSettings?: {
+      tableName: string;
+      fieldMapping?: {
+        timeColumn?: string;
+        amountColumn?: string;
+        orderIdColumn?: string;
+        userIdColumn?: string;
+      };
+      defaultFilters?: Array<{
+        column: string;
+        op: string;
+        value: unknown;
+      }>;
+      metrics?: Record<string, {
+        label: string;
+        aggregation: string;
+        column?: string;
+      }>;
+    };
+  } | null;
   onUpvote: (query: string) => void;
   onDownvote: (query: string) => void;
   onRetry: (query: string) => void;
@@ -59,8 +89,196 @@ const formatDurationSeconds = (ms?: number): string | null => {
   return `耗时 ${seconds.toFixed(1)}s`;
 };
 
-const ThinkingSteps: React.FC<{ steps: { tool: string; params: any, thought?: string }, llmDurationMs?: number }> = ({ steps, llmDurationMs }) => {
+const ThinkingSteps: React.FC<{ 
+  steps: { 
+    tool: string; 
+    params: any; 
+    thought?: string;
+    // M10.5: Skill execution metadata
+    skillName?: string;
+    industry?: string;
+    userSkillApplied?: boolean;
+    userSkillDigestChars?: number;
+    activeTable?: string;
+    // M10.5 Phase 3: Effective settings
+    effectiveSettings?: {
+      tableName: string;
+      fieldMapping?: {
+        timeColumn?: string;
+        amountColumn?: string;
+        orderIdColumn?: string;
+        userIdColumn?: string;
+      };
+      defaultFilters?: Array<{
+        column: string;
+        op: string;
+        value: unknown;
+      }>;
+      metrics?: Record<string, {
+        label: string;
+        aggregation: string;
+        column?: string;
+      }>;
+    };
+  }; 
+  llmDurationMs?: number;
+}> = ({ steps, llmDurationMs }) => {
   const llmDurationLabel = formatDurationSeconds(llmDurationMs);
+
+  // M10.5 Phase 2: Render skill metadata tags
+  const renderSkillMetadataTags = () => {
+    const { skillName, industry, userSkillApplied, userSkillDigestChars } = steps;
+    
+    // Don't render if no metadata available
+    if (!skillName && !industry && userSkillApplied === undefined) {
+      return null;
+    }
+
+    const tags: React.ReactNode[] = [];
+
+    // [Skill] tag - always show if skillName exists
+    if (skillName) {
+      tags.push(
+        <Tag key="skill" color="blue" style={{ marginBottom: 0 }}>
+          Skill: {skillName}
+        </Tag>
+      );
+    }
+
+    // [Industry] tag - only show if industry exists
+    if (industry) {
+      tags.push(
+        <Tag key="industry" color="green" style={{ marginBottom: 0 }}>
+          Industry: {industry}
+        </Tag>
+      );
+    }
+
+    // [UserSkill] tag - always show with applied/not configured status
+    if (userSkillApplied === true && userSkillDigestChars !== undefined) {
+      tags.push(
+        <Tag key="userskill" color="orange" style={{ marginBottom: 0 }}>
+          UserSkill: applied, {userSkillDigestChars}/1200 chars
+        </Tag>
+      );
+    } else if (userSkillApplied === false) {
+      tags.push(
+        <Tag key="userskill" color="default" style={{ marginBottom: 0 }}>
+          UserSkill: not configured
+        </Tag>
+      );
+    }
+
+    return (
+      <div style={{ marginBottom: 12 }}>
+        <Space size={[4, 4]} wrap>
+          {tags}
+        </Space>
+      </div>
+    );
+  };
+
+  // M10.5 Phase 3: Render effective settings (user skill configuration used)
+  const renderEffectiveSettings = () => {
+    const { effectiveSettings } = steps;
+    
+    if (!effectiveSettings) {
+      return null;
+    }
+
+    const { tableName, fieldMapping, defaultFilters, metrics } = effectiveSettings;
+
+    return (
+      <div>
+        <Typography.Text strong>3. 本次生效配置 (Effective Settings)</Typography.Text>
+        <div style={{ 
+          marginTop: '8px', 
+          padding: '12px',
+          background: '#1f2123',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+          borderRadius: 4,
+        }}>
+          <Space direction="vertical" style={{ width: '100%', gap: '8px' }}>
+            {/* Table Name */}
+            <div>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>Table:</Typography.Text>
+              <Typography.Text style={{ marginLeft: 8 }}>{tableName}</Typography.Text>
+            </div>
+
+            {/* Field Mapping */}
+            {fieldMapping && (
+              <div>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>Field Mapping:</Typography.Text>
+                <div style={{ marginLeft: 16, marginTop: 4 }}>
+                  {fieldMapping.timeColumn && (
+                    <div><Typography.Text style={{ fontSize: 12 }}>• Time: {fieldMapping.timeColumn}</Typography.Text></div>
+                  )}
+                  {fieldMapping.amountColumn && (
+                    <div><Typography.Text style={{ fontSize: 12 }}>• Amount: {fieldMapping.amountColumn}</Typography.Text></div>
+                  )}
+                  {fieldMapping.orderIdColumn && (
+                    <div><Typography.Text style={{ fontSize: 12 }}>• OrderId: {fieldMapping.orderIdColumn}</Typography.Text></div>
+                  )}
+                  {fieldMapping.userIdColumn && (
+                    <div><Typography.Text style={{ fontSize: 12 }}>• UserId: {fieldMapping.userIdColumn}</Typography.Text></div>
+                  )}
+                  {!fieldMapping.timeColumn && !fieldMapping.amountColumn && !fieldMapping.orderIdColumn && !fieldMapping.userIdColumn && (
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>Not configured</Typography.Text>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Default Filters */}
+            {defaultFilters && defaultFilters.length > 0 && (
+              <div>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  Default Filters: ({defaultFilters.length} total)
+                </Typography.Text>
+                <div style={{ marginLeft: 16, marginTop: 4 }}>
+                  {defaultFilters.slice(0, 5).map((filter, idx) => (
+                    <div key={idx}>
+                      <Typography.Text style={{ fontSize: 12 }}>
+                        • {filter.column} {filter.op} {JSON.stringify(filter.value)}
+                      </Typography.Text>
+                    </div>
+                  ))}
+                  {defaultFilters.length > 5 && (
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      +{defaultFilters.length - 5} more filters...
+                    </Typography.Text>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Metrics */}
+            {metrics && Object.keys(metrics).length > 0 && (
+              <div>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  Metrics: ({Object.keys(metrics).length} total)
+                </Typography.Text>
+                <div style={{ marginLeft: 16, marginTop: 4 }}>
+                  {Object.entries(metrics).slice(0, 8).map(([key, metric]) => (
+                    <div key={key}>
+                      <Typography.Text style={{ fontSize: 12 }}>
+                        • {key}: {metric.aggregation}({metric.column || '*'})
+                      </Typography.Text>
+                    </div>
+                  ))}
+                  {Object.keys(metrics).length > 8 && (
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      +{Object.keys(metrics).length - 8} more metrics...
+                    </Typography.Text>
+                  )}
+                </div>
+              </div>
+            )}
+          </Space>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <Collapse ghost style={{ margin: '0 -24px' }}>
@@ -79,6 +297,9 @@ const ThinkingSteps: React.FC<{ steps: { tool: string; params: any, thought?: st
       >
         <div style={{ padding: '16px 24px 0 24px' }}>
           <Space direction="vertical" style={{ width: '100%', gap: '16px' }}>
+            {/* M10.5 Phase 2: Skill metadata tags */}
+            {renderSkillMetadataTags()}
+
             {steps.thought && (
               <Space align="start">
                 <Avatar src="/icons/icon-128.png" size={24} />
@@ -106,6 +327,9 @@ const ThinkingSteps: React.FC<{ steps: { tool: string; params: any, thought?: st
                 <code>{JSON.stringify(steps.params, null, 2)}</code>
               </pre>
             </div>
+            
+            {/* M10.5 Phase 3: Effective Settings */}
+            {renderEffectiveSettings()}
           </Space>
         </div>
       </Collapse.Panel>
